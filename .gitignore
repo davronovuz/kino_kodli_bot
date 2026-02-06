@@ -1,0 +1,64 @@
+# ============== Python ==============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.whl
+.Python
+develop-eggs/
+.installed.cfg
+
+# ============== Virtual Environment ==============
+venv/
+.venv/
+env/
+ENV/
+
+# ============== Environment Variables ==============
+.env
+.env.local
+.env.production
+!.env.example
+
+# ============== IDE ==============
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ============== OS ==============
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak
+
+# ============== Logs ==============
+logs/
+*.log
+
+# ============== Database ==============
+*.db
+*.sqlite3
+*.sql
+!seed.py
+
+# ============== Docker ==============
+docker-compose.override.yml
+
+# ============== Project Specific ==============
+alembic/versions/*.py
+!alembic/versions/__init__.py
+*.xlsx
+*.csv
+*.xls

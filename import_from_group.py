@@ -1,6 +1,6 @@
 """
 🎬 Import: Pyrogram user -> copy to bot chat -> bot o'qiydi
-User akkaunt kinoni botga yuboradi, bot file_id oladi
+User akkaunt jkinoni botga yuboradi, bot file_id oladi
 """
 
 import asyncio

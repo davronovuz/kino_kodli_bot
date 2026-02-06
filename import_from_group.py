@@ -1,20 +1,20 @@
-"""
-🎬 Import: Pyrogram user -> copy to bot chat -> bot o'qiydi
-User akkaunt jkinoni botga yuboradi, bot file_id oladi
-"""
-
 import asyncio
-import sys
 import os
 import re
+import aiohttp
+from pyrogram import Client
+import asyncpg
 from dotenv import load_dotenv
+
+# .env yuklash
 load_dotenv()
 
+# Sozlamalar
 API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 GROUP_ID = int(os.getenv("IMPORT_GROUP_ID", "-1002284993414"))
-ADMIN_ID = int(os.getenv("ADMINS", "0").split(",")[0])
+BOT_USERNAME = os.getenv("BOT_USERNAME", "")
 
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
@@ -22,247 +22,170 @@ DB_NAME = os.getenv("DB_NAME", "kino_bot")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASS = os.getenv("DB_PASS", "")
 
-# Bot username (@ siz)
-BOT_USERNAME = os.getenv("BOT_USERNAME", "")
-
-
 async def main():
-    from pyrogram import Client
-    import asyncpg
-    import aiohttp
-
-    if API_ID == 0 or not API_HASH:
-        print("❌ API_ID va API_HASH .env ga yozing")
-        sys.exit(1)
-
     print("📦 Bazaga ulanmoqda...")
     try:
         db = await asyncpg.connect(
             host=DB_HOST, port=int(DB_PORT),
             database=DB_NAME, user=DB_USER, password=DB_PASS,
         )
+        print("✅ Bazaga ulandi!")
     except Exception as e:
-        print(f"❌ Baza xatosi: {e}")
-        sys.exit(1)
-    print("✅ Bazaga ulandi!")
+        print(f"❌ Bazaga ulanishda xato: {e}")
+        return
 
-    old_count = await db.fetchval("SELECT COUNT(*) FROM movies")
-    if old_count > 0:
-        print(f"🗑 Eski {old_count} ta yozuv tozalanmoqda...")
-        await db.execute("DELETE FROM movies")
-        print("✅ Tozalandi!")
-
-    # User akkaunt
+    # User Clientni ishga tushirish
     print("📱 User akkauntga ulanmoqda...")
-    user_app = Client(name="movie_importer", api_id=API_ID, api_hash=API_HASH)
-    await user_app.start()
-    me = await user_app.get_me()
-    print(f"✅ User: {me.first_name}")
+    app = Client(name="movie_importer", api_id=API_ID, api_hash=API_HASH)
+    await app.start()
 
-    # Bot username olish
-    bot_username = BOT_USERNAME
-    if not bot_username:
+    # Bot username ni aniqlash
+    target_bot_user = BOT_USERNAME
+    if not target_bot_user:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
-                data = await resp.json()
-                bot_username = data["result"]["username"]
-    print(f"🤖 Bot: @{bot_username}")
+                bot_info = await resp.json()
+                target_bot_user = bot_info["result"]["username"]
 
-    # Guruhni o'qish
-    try:
-        chat = await user_app.get_chat(GROUP_ID)
-        print(f"📢 Guruh: {chat.title}")
-    except Exception as e:
-        print(f"❌ Guruhga kirib bo'lmadi: {e}")
-        await user_app.stop()
-        await db.close()
-        sys.exit(1)
+    print(f"🤖 Botga yuklanadi: @{target_bot_user}")
+    print("🚀 Import boshlandi...")
 
-    # Xabarlarni skanerlash
-    print("\n🔍 Xabarlar skanerlanmoqda...")
-    video_messages = []
-    total_scanned = 0
+    # Eskilarini tozalash
+    count_old = await db.fetchval("SELECT COUNT(*) FROM movies")
+    if count_old > 0:
+        print(f"⚠️ Diqqat! Bazada {count_old} ta kino bor. Ular tozalanmoqda...")
+        await db.execute("DELETE FROM movies")
 
-    async for message in user_app.get_chat_history(GROUP_ID):
-        total_scanned += 1
-        if total_scanned % 200 == 0:
-            print(f"  ⏳ Skanerlandi: {total_scanned}...")
-
-        has_video = False
-        if message.video:
-            has_video = True
-        elif message.document and (message.document.mime_type or "").startswith("video/"):
-            has_video = True
-
-        if has_video:
-            video_messages.append({
-                "msg_id": message.id,
-                "caption": message.caption or "",
-                "file_name": None,
-            })
-            if message.document and message.document.file_name:
-                video_messages[-1]["file_name"] = message.document.file_name
-
-    print(f"✅ {len(video_messages)} ta video topildi")
-
-    # User akkaunt orqali kinolarni BOTGA yuborish
-    # Bot shaxsiy chatda xabarni ko'radi va file_id oladi
-    print(f"\n📤 Kinolar botga yuborilmoqda...")
-    print("=" * 50)
-
-    imported = 0
-    failed = 0
+    # Kodlashni 1 dan boshlash
     next_code = 1
+    total_added = 0
+    skipped = 0
 
     BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-    async with aiohttp.ClientSession() as http:
-        for i, vmsg in enumerate(video_messages):
+    async with aiohttp.ClientSession() as http_session:
+        async for message in app.get_chat_history(GROUP_ID):
             try:
-                # User akkaunt guruhdan botga forward qiladi
-                forwarded = await user_app.forward_messages(
-                    chat_id=bot_username,
+                # 1. Video borligini tekshirish
+                is_video = False
+                if message.video:
+                    is_video = True
+                elif message.document and (message.document.mime_type or "").startswith("video/"):
+                    is_video = True
+
+                if not is_video:
+                    continue
+
+                caption = message.caption or ""
+
+                # 2. Videoni botga forward qilish
+                forwarded = await app.forward_messages(
+                    chat_id=target_bot_user,
                     from_chat_id=GROUP_ID,
-                    message_ids=vmsg["msg_id"],
+                    message_ids=message.id
                 )
 
                 if not forwarded:
-                    failed += 1
+                    skipped += 1
                     continue
 
-                fwd = forwarded if not isinstance(forwarded, list) else forwarded[0]
+                fwd_msg = forwarded if not isinstance(forwarded, list) else forwarded[0]
 
-                # Bot API orqali shu xabarni o'qish (getUpdates emas, forward qilingan xabarni)
-                await asyncio.sleep(0.5)
+                # Biroz kutamiz
+                await asyncio.sleep(0.8)
 
-                # Bot API: getUpdates orqali oxirgi xabarni olish
-                async with http.get(f"{BASE_URL}/getUpdates", params={"offset": -1, "limit": 1}) as resp:
-                    data = await resp.json()
-
-                if not data.get("ok") or not data.get("result"):
-                    failed += 1
-                    continue
-
-                update = data["result"][-1]
-                msg_data = update.get("message", {})
-
-                # File info olish
+                # 3. Bot API orqali File ID olish (GetUpdates)
                 file_id = None
                 file_unique_id = None
+                file_size = 0
+                duration = 0
                 file_type = "video"
-                duration = None
-                file_size = None
 
-                if "video" in msg_data:
-                    v = msg_data["video"]
-                    file_id = v["file_id"]
-                    file_unique_id = v["file_unique_id"]
-                    duration = v.get("duration")
-                    file_size = v.get("file_size")
-                elif "document" in msg_data:
-                    d = msg_data["document"]
-                    file_id = d["file_id"]
-                    file_unique_id = d["file_unique_id"]
-                    file_size = d.get("file_size")
-                    file_type = "document"
+                async with http_session.get(f"{BASE_URL}/getUpdates", params={"offset": -1, "limit": 1}) as resp:
+                    data = await resp.json()
+
+                if data.get("ok") and data.get("result"):
+                    update = data["result"][-1]
+                    msg = update.get("message", {})
+
+                    if "video" in msg:
+                        file_id = msg["video"]["file_id"]
+                        file_unique_id = msg["video"]["file_unique_id"]
+                        file_size = msg["video"].get("file_size", 0)
+                        duration = msg["video"].get("duration", 0)
+                    elif "document" in msg:
+                        file_id = msg["document"]["file_id"]
+                        file_unique_id = msg["document"]["file_unique_id"]
+                        file_size = msg["document"].get("file_size", 0)
+                        file_type = "document"
 
                 if not file_id:
-                    failed += 1
+                    print(f"❌ File ID olinmadi. Kod: {next_code}")
+                    try:
+                        await app.delete_messages(target_bot_user, fwd_msg.id)
+                    except:
+                        pass
                     continue
 
-                # Caption dan ma'lumot
-                caption_text = vmsg["caption"]
+                # 4. Qo'shimcha ma'lumotlar
                 title = "Nomsiz kino"
+                if caption:
+                    lines = caption.split('\n')
+                    if lines:
+                        title = lines[0][:200]
 
-                if caption_text:
-                    lines = caption_text.strip().split("\n")
-                    clean_lines = []
-                    for line in lines:
-                        words = line.split()
-                        clean_words = [w for w in words if not w.startswith("#")]
-                        clean_line = " ".join(clean_words).strip()
-                        if clean_line:
-                            clean_lines.append(clean_line)
-                    if clean_lines:
-                        title = clean_lines[0][:500]
-                elif vmsg["file_name"]:
-                    fname = vmsg["file_name"]
-                    title = fname.rsplit(".", 1)[0] if "." in fname else fname
-
-                quality = None
-                for q in ["4K", "2160p", "1080p", "720p", "480p", "360p"]:
-                    if q.lower() in (caption_text + title).lower():
-                        quality = q
-                        break
-
-                language = None
-                lang_map = {
-                    "uzbek": "🇺🇿 O'zbek tilida", "o'zbek": "🇺🇿 O'zbek tilida",
-                    "ozbek": "🇺🇿 O'zbek tilida", "uz tilida": "🇺🇿 O'zbek tilida",
-                    "rus": "🇷🇺 Rus tilida", "eng": "🇺🇸 Ingliz tilida",
-                    "korean": "🇰🇷 Koreys tilida", "turk": "🇹🇷 Turk tilida",
-                }
-                check_text = (caption_text + " " + title).lower()
-                for keyword, lang_name in lang_map.items():
-                    if keyword in check_text:
-                        language = lang_name
-                        break
-
+                # Yilni topish
                 year = None
-                year_match = re.search(r'(20[0-2]\d|19[89]\d)', caption_text + " " + title)
+                year_match = re.search(r'(20[0-2]\d|19[89]\d)', caption + " " + title)
                 if year_match:
                     year = int(year_match.group(1))
 
-                # Bazaga yozish
-                code = next_code
-                await db.execute("""
-                    INSERT INTO movies (code, title, year, quality, language, file_id,
-                        file_type, file_unique_id, duration, file_size, caption, added_by, is_active)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE)
-                    ON CONFLICT (file_unique_id) DO NOTHING
-                """, code, title, year, quality, language, file_id,
-                    file_type, file_unique_id, duration, file_size, caption_text or None, 0)
-                next_code += 1
-                imported += 1
+                # Tilni topish
+                language = None
+                if "o'zbek" in caption.lower() or "uzbek" in caption.lower():
+                    language = "🇺🇿 O'zbek tilida"
+                elif "rus" in caption.lower():
+                    language = "🇷🇺 Rus tilida"
 
-                if imported % 10 == 0:
-                    print(f"  ✅ {imported}/{len(video_messages)} [{code}] {title[:40]}")
-
-                # Forward xabarni o'chirish
+                # 5. Bazaga yozish
                 try:
-                    fwd_id = fwd.id if hasattr(fwd, 'id') else fwd.message_id
-                    await user_app.delete_messages(bot_username, fwd_id)
+                    await db.execute("""
+                        INSERT INTO movies (code, title, year, quality, language, file_id,
+                            file_type, file_unique_id, duration, file_size, caption, added_by, is_active)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE)
+                        ON CONFLICT (file_unique_id) DO NOTHING
+                    """, next_code, title, year, "720p", language, file_id,
+                        file_type, file_unique_id, duration, file_size, caption, 0)
+
+                    total_added += 1
+                    if total_added % 10 == 0:
+                        print(f"✅ Qo'shildi: #{next_code} | {title[:30]}...")
+
+                    next_code += 1
+
+                except Exception as e:
+                    print(f"❌ DB Xato: {e}")
+
+                # 6. Bot lichkasini tozalash
+                try:
+                    await app.delete_messages(target_bot_user, fwd_msg.id)
                 except:
                     pass
 
-                # Flood himoya
-                if (i + 1) % 15 == 0:
-                    await asyncio.sleep(3)
+                # Flood wait oldini olish
+                await asyncio.sleep(1)
 
             except Exception as e:
-                failed += 1
-                err = str(e).upper()
-                if "FLOOD" in err:
-                    wait = 30
-                    try:
-                        wait = int(re.search(r'(\d+)', str(e)).group(1))
-                    except:
-                        pass
-                    print(f"  ⏳ Flood — {wait} soniya kutilmoqda...")
-                    await asyncio.sleep(wait + 2)
-                elif failed % 20 == 0:
-                    print(f"  ❌ Xato ({failed}): {str(e)[:80]}")
+                print(f"❌ Umumiy xato: {e}")
+                await asyncio.sleep(2)
 
-    print("\n" + "=" * 50)
-    print(f"🎬 IMPORT YAKUNLANDI!")
-    print(f"✅ Qo'shildi:  {imported}")
-    print(f"❌ Xato:       {failed}")
-    print(f"🔢 Oxirgi kod: {next_code - 1}")
-
-    await user_app.stop()
+    await app.stop()
     await db.close()
-    print("👋 Tamom!")
 
+    print("="*30)
+    print(f"🏁 TUGADI!")
+    print(f"✅ Jami: {total_added}")
+    print("="*30)
 
 if __name__ == "__main__":
     asyncio.run(main())

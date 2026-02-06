@@ -1,6 +1,5 @@
 """
-🎬 Guruhdan kinolarni import qilish (Pyrogram + Bot hybrid)
-Pyrogram xabarlarni o'qiydi, Bot orqali file_id oladi
+🎬 Guruhdan kinolarni import — Pyrogram bilan xabar o'qish, Bot bilan copy
 """
 
 import asyncio
@@ -47,7 +46,7 @@ async def main():
         sys.exit(1)
     print("✅ Bazaga ulandi!")
 
-    # Eski noto'g'ri importlarni tozalash
+    # Eski yozuvlarni tozalash
     old_count = await db.fetchval("SELECT COUNT(*) FROM movies")
     if old_count > 0:
         print(f"🗑 Eski {old_count} ta yozuv tozalanmoqda...")
@@ -59,22 +58,16 @@ async def main():
     await user_app.start()
     print("✅ User akkaunt ulandi!")
 
-    print("🤖 Botga ulanmoqda...")
-    bot_app = Client(name="movie_bot_import", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-    await bot_app.start()
-    print("✅ Bot ulandi!")
-
     try:
         chat = await user_app.get_chat(GROUP_ID)
         print(f"📢 Guruh: {chat.title}")
     except Exception as e:
         print(f"❌ Guruhga kirib bo'lmadi: {e}")
         await user_app.stop()
-        await bot_app.stop()
         await db.close()
         sys.exit(1)
 
-    # Avval barcha video xabarlarni yig'ib olish
+    # Xabarlarni skanerlash
     print("\n🔍 Xabarlar skanerlanmoqda...")
     video_messages = []
     total_scanned = 0
@@ -85,132 +78,133 @@ async def main():
             print(f"  ⏳ Skanerlandi: {total_scanned} ta xabar...")
 
         if message.video or (message.document and (message.document.mime_type or "").startswith("video/")):
-            video_messages.append(message)
+            video_messages.append(message.id)
 
     print(f"✅ {len(video_messages)} ta video topildi ({total_scanned} ta xabardan)")
 
-    # Endi bot orqali forward qilib to'g'ri file_id olish
+    # User app ni yopamiz — endi bot ishlaydi
+    await user_app.stop()
+    print("📱 User akkaunt yopildi")
+
+    # Bot orqali guruhdan xabarlarni o'qish
+    print("🤖 Bot orqali import qilinmoqda...")
+    print("=" * 50)
+
+    from pyrogram import Client as PyroClient
+    bot_app = PyroClient(name="bot_importer", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+    await bot_app.start()
+    print("✅ Bot ulandi!")
+
     imported = 0
     failed = 0
     next_code = 1
+    batch_size = 100
 
-    print(f"\n📤 Bot orqali import qilinmoqda...")
-    print("=" * 50)
+    # Batchlarda ishlash
+    for batch_start in range(0, len(video_messages), batch_size):
+        batch = video_messages[batch_start:batch_start + batch_size]
 
-    for i, msg in enumerate(video_messages):
         try:
-            # User akkaunt orqali guruhdan admin chatga forward
-            forwarded = await user_app.forward_messages(
-                chat_id=ADMIN_ID,
-                from_chat_id=GROUP_ID,
-                message_ids=msg.id,
-            )
-
-            if not forwarded:
-                failed += 1
-                continue
-
-            fwd = forwarded if not isinstance(forwarded, list) else forwarded[0]
-
-            # Bot orqali shu xabarni o'qish (to'g'ri file_id olish uchun)
-            try:
-                bot_msg = await bot_app.get_messages(ADMIN_ID, fwd.id)
-            except Exception:
-                # Agar bot o'qiy olmasa, user app dan olamiz
-                bot_msg = fwd
-
-            # File info olish
-            if bot_msg.video:
-                file_id = bot_msg.video.file_id
-                file_unique_id = bot_msg.video.file_unique_id
-                file_type = "video"
-                duration = bot_msg.video.duration
-                file_size = bot_msg.video.file_size
-            elif bot_msg.document:
-                file_id = bot_msg.document.file_id
-                file_unique_id = bot_msg.document.file_unique_id
-                file_type = "document"
-                duration = None
-                file_size = bot_msg.document.file_size
-            else:
-                failed += 1
-                continue
-
-            # Caption dan ma'lumot olish
-            caption_text = msg.caption or ""
-            title = "Nomsiz kino"
-
-            if caption_text:
-                lines = caption_text.strip().split("\n")
-                clean_lines = []
-                for line in lines:
-                    words = line.split()
-                    clean_words = [w for w in words if not w.startswith("#")]
-                    clean_line = " ".join(clean_words).strip()
-                    if clean_line:
-                        clean_lines.append(clean_line)
-                if clean_lines:
-                    title = clean_lines[0][:500]
-            elif msg.document and msg.document.file_name:
-                fname = msg.document.file_name
-                title = fname.rsplit(".", 1)[0] if "." in fname else fname
-
-            quality = None
-            for q in ["4K", "2160p", "1080p", "720p", "480p", "360p"]:
-                if q.lower() in (caption_text + title).lower():
-                    quality = q
-                    break
-
-            language = None
-            lang_map = {
-                "uzbek": "🇺🇿 O'zbek tilida", "o'zbek": "🇺🇿 O'zbek tilida",
-                "ozbek": "🇺🇿 O'zbek tilida", "uz tilida": "🇺🇿 O'zbek tilida",
-                "rus": "🇷🇺 Rus tilida", "eng": "🇺🇸 Ingliz tilida",
-                "korean": "🇰🇷 Koreys tilida", "turk": "🇹🇷 Turk tilida",
-            }
-            check_text = (caption_text + " " + title).lower()
-            for keyword, lang_name in lang_map.items():
-                if keyword in check_text:
-                    language = lang_name
-                    break
-
-            year = None
-            year_match = re.search(r'(20[0-2]\d|19[89]\d)', caption_text + " " + title)
-            if year_match:
-                year = int(year_match.group(1))
-
-            # Bazaga yozish
-            code = next_code
-            await db.execute("""
-                INSERT INTO movies (code, title, year, quality, language, file_id,
-                    file_type, file_unique_id, duration, file_size, caption, added_by, is_active)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE)
-                ON CONFLICT (file_unique_id) DO NOTHING
-            """, code, title, year, quality, language, file_id,
-                file_type, file_unique_id, duration, file_size, caption_text or None, 0)
-            next_code += 1
-            imported += 1
-
-            if imported % 10 == 0:
-                print(f"  ✅ {imported} ta qo'shildi... [{code}] {title[:40]}")
-
-            # Forward xabarni o'chirish (chatni tozalash)
-            try:
-                await user_app.delete_messages(ADMIN_ID, fwd.id)
-            except Exception:
-                pass
-
-            # Telegram flood limitidan himoya
-            if (i + 1) % 20 == 0:
-                await asyncio.sleep(2)
-
+            # Bot orqali xabarlarni o'qish
+            messages = await bot_app.get_messages(GROUP_ID, batch)
         except Exception as e:
-            failed += 1
-            if "FLOOD" in str(e).upper():
-                print(f"  ⏳ Flood limit — 30 soniya kutilmoqda...")
-                await asyncio.sleep(30)
-            elif failed % 10 == 0:
-                print(f"  ❌ Xato ({failed}): {str(e)[:80]}")
+            print(f"  ❌ Batch xatosi: {str(e)[:80]}")
+            # Bitta-bitta urinib ko'rish
+            messages = []
+            for mid in batch:
+                try:
+                    msg = await bot_app.get_messages(GROUP_ID, mid)
+                    messages.append(msg)
+                    await asyncio.sleep(0.1)
+                except Exception:
+                    failed += 1
+
+        for bot_msg in messages:
+            try:
+                if not bot_msg or bot_msg.empty:
+                    failed += 1
+                    continue
+
+                # File info
+                if bot_msg.video:
+                    file_id = bot_msg.video.file_id
+                    file_unique_id = bot_msg.video.file_unique_id
+                    file_type = "video"
+                    duration = bot_msg.video.duration
+                    file_size = bot_msg.video.file_size
+                elif bot_msg.document and (bot_msg.document.mime_type or "").startswith("video/"):
+                    file_id = bot_msg.document.file_id
+                    file_unique_id = bot_msg.document.file_unique_id
+                    file_type = "document"
+                    duration = None
+                    file_size = bot_msg.document.file_size
+                else:
+                    failed += 1
+                    continue
+
+                # Caption dan ma'lumot
+                caption_text = bot_msg.caption or ""
+                title = "Nomsiz kino"
+
+                if caption_text:
+                    lines = caption_text.strip().split("\n")
+                    clean_lines = []
+                    for line in lines:
+                        words = line.split()
+                        clean_words = [w for w in words if not w.startswith("#")]
+                        clean_line = " ".join(clean_words).strip()
+                        if clean_line:
+                            clean_lines.append(clean_line)
+                    if clean_lines:
+                        title = clean_lines[0][:500]
+                elif bot_msg.document and bot_msg.document.file_name:
+                    fname = bot_msg.document.file_name
+                    title = fname.rsplit(".", 1)[0] if "." in fname else fname
+
+                quality = None
+                for q in ["4K", "2160p", "1080p", "720p", "480p", "360p"]:
+                    if q.lower() in (caption_text + title).lower():
+                        quality = q
+                        break
+
+                language = None
+                lang_map = {
+                    "uzbek": "🇺🇿 O'zbek tilida", "o'zbek": "🇺🇿 O'zbek tilida",
+                    "ozbek": "🇺🇿 O'zbek tilida", "uz tilida": "🇺🇿 O'zbek tilida",
+                    "rus": "🇷🇺 Rus tilida", "eng": "🇺🇸 Ingliz tilida",
+                    "korean": "🇰🇷 Koreys tilida", "turk": "🇹🇷 Turk tilida",
+                }
+                check_text = (caption_text + " " + title).lower()
+                for keyword, lang_name in lang_map.items():
+                    if keyword in check_text:
+                        language = lang_name
+                        break
+
+                year = None
+                year_match = re.search(r'(20[0-2]\d|19[89]\d)', caption_text + " " + title)
+                if year_match:
+                    year = int(year_match.group(1))
+
+                # Bazaga yozish
+                code = next_code
+                await db.execute("""
+                    INSERT INTO movies (code, title, year, quality, language, file_id,
+                        file_type, file_unique_id, duration, file_size, caption, added_by, is_active)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,TRUE)
+                    ON CONFLICT (file_unique_id) DO NOTHING
+                """, code, title, year, quality, language, file_id,
+                    file_type, file_unique_id, duration, file_size, caption_text or None, 0)
+                next_code += 1
+                imported += 1
+
+                if imported % 20 == 0:
+                    print(f"  ✅ {imported} ta qo'shildi... [{code}] {title[:40]}")
+
+            except Exception as e:
+                failed += 1
+
+        # Batchlar orasida kutish
+        await asyncio.sleep(1)
 
     print("\n" + "=" * 50)
     print(f"🎬 IMPORT YAKUNLANDI!")
@@ -218,7 +212,6 @@ async def main():
     print(f"❌ Xato:       {failed}")
     print(f"🔢 Oxirgi kod: {next_code - 1}")
 
-    await user_app.stop()
     await bot_app.stop()
     await db.close()
     print("👋 Tamom!")

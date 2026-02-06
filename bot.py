@@ -57,7 +57,7 @@ async def on_startup(bot: Bot):
     await bot.set_my_commands(commands)
 
     # Notify admins
-    for admin_id in config.ADMINS:
+    for admin_id in config.admins_list:
         try:
             await bot.send_message(admin_id, "✅ Bot ishga tushdi!")
         except Exception:
@@ -73,7 +73,7 @@ async def on_shutdown(bot: Bot):
     await CacheService.disconnect()
 
     # Notify admins
-    for admin_id in config.ADMINS:
+    for admin_id in config.admins_list:
         try:
             await bot.send_message(admin_id, "⚠️ Bot to'xtadi!")
         except Exception:

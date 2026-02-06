@@ -48,7 +48,7 @@ class ErrorHandlerMiddleware(BaseMiddleware):
                         user = event.from_user
                         error_text += f"<b>User:</b> {user.id} (@{user.username})\n"
 
-                    for admin_id in config.ADMINS[:3]:  # First 3 admins
+                    for admin_id in config.admins_list[:3]:  # First 3 admins
                         try:
                             await bot.send_message(
                                 admin_id, error_text, parse_mode="HTML"

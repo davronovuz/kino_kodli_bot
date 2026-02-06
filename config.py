@@ -6,7 +6,7 @@ from typing import List, Optional
 class Settings(BaseSettings):
     # Bot
     BOT_TOKEN: str
-    ADMINS: List[int] = []
+    ADMINS: str = ""
 
     # Database
     DB_HOST: str = "db"
@@ -34,26 +34,25 @@ class Settings(BaseSettings):
     BATCH_SIZE: int = 20
     BATCH_DELAY: int = 3
 
-    # Mandatory channels
-    MANDATORY_CHANNELS: List[str] = []
+    # Mandatory channels (comma separated)
+    MANDATORY_CHANNELS: str = ""
 
-    @field_validator("ADMINS", mode="before")
-    @classmethod
-    def parse_admins(cls, v):
-        if isinstance(v, str):
-            if not v.strip():
-                return []
-            return [int(x.strip()) for x in v.split(",") if x.strip()]
-        return v
+    @property
+    def admins_list(self) -> List[int]:
+        if not self.ADMINS.strip():
+            return []
+        result = []
+        for x in self.ADMINS.split(","):
+            x = x.strip()
+            if x.isdigit():
+                result.append(int(x))
+        return result
 
-    @field_validator("MANDATORY_CHANNELS", mode="before")
-    @classmethod
-    def parse_channels(cls, v):
-        if isinstance(v, str):
-            if not v.strip():
-                return []
-            return [x.strip() for x in v.split(",") if x.strip()]
-        return v
+    @property
+    def channels_list(self) -> List[str]:
+        if not self.MANDATORY_CHANNELS.strip():
+            return []
+        return [x.strip() for x in self.MANDATORY_CHANNELS.split(",") if x.strip()]
 
     @property
     def database_url(self) -> str:

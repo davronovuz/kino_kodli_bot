@@ -30,7 +30,7 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
 
     if is_new:
         # Notify admins
-        for admin_id in config.ADMINS[:3]:
+        for admin_id in config.admins_list[:3]:
             try:
                 await message.bot.send_message(
                     admin_id,
@@ -45,7 +45,7 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
 
     welcome_text = (
         f"👋 <b>Assalomu alaykum, {message.from_user.first_name}!</b>\n\n"
-        f"🎬 <b>Kino Bot</b>ga xush kelibsiz!\n\n"
+        f"🎬 <b>FastKino Bot</b>ga xush kelibsiz!\n\n"
         f"📌 <b>Qanday foydalanish:</b>\n"
         f"• Kino kodini yuboring — masalan: <code>1</code>\n"
         f"• Kino nomini yozing — masalan: <code>Venom</code>\n"

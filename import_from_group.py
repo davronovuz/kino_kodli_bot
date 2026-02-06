@@ -1,5 +1,6 @@
 """
-🎬 Guruhdan kinolarni import — Pyrogram bilan xabar o'qish, Bot bilan copy
+🎬 Import: Pyrogram user -> copy to bot chat -> bot o'qiydi
+User akkaunt kinoni botga yuboradi, bot file_id oladi
 """
 
 import asyncio
@@ -21,15 +22,14 @@ DB_NAME = os.getenv("DB_NAME", "kino_bot")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASS = os.getenv("DB_PASS", "")
 
+# Bot username (@ siz)
+BOT_USERNAME = os.getenv("BOT_USERNAME", "")
+
 
 async def main():
-    try:
-        from pyrogram import Client
-    except ImportError:
-        print("❌ pip install pyrogram tgcrypto")
-        sys.exit(1)
-
+    from pyrogram import Client
     import asyncpg
+    import aiohttp
 
     if API_ID == 0 or not API_HASH:
         print("❌ API_ID va API_HASH .env ga yozing")
@@ -46,18 +46,29 @@ async def main():
         sys.exit(1)
     print("✅ Bazaga ulandi!")
 
-    # Eski yozuvlarni tozalash
     old_count = await db.fetchval("SELECT COUNT(*) FROM movies")
     if old_count > 0:
         print(f"🗑 Eski {old_count} ta yozuv tozalanmoqda...")
         await db.execute("DELETE FROM movies")
         print("✅ Tozalandi!")
 
+    # User akkaunt
     print("📱 User akkauntga ulanmoqda...")
     user_app = Client(name="movie_importer", api_id=API_ID, api_hash=API_HASH)
     await user_app.start()
-    print("✅ User akkaunt ulandi!")
+    me = await user_app.get_me()
+    print(f"✅ User: {me.first_name}")
 
+    # Bot username olish
+    bot_username = BOT_USERNAME
+    if not bot_username:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getMe") as resp:
+                data = await resp.json()
+                bot_username = data["result"]["username"]
+    print(f"🤖 Bot: @{bot_username}")
+
+    # Guruhni o'qish
     try:
         chat = await user_app.get_chat(GROUP_ID)
         print(f"📢 Guruh: {chat.title}")
@@ -75,75 +86,92 @@ async def main():
     async for message in user_app.get_chat_history(GROUP_ID):
         total_scanned += 1
         if total_scanned % 200 == 0:
-            print(f"  ⏳ Skanerlandi: {total_scanned} ta xabar...")
+            print(f"  ⏳ Skanerlandi: {total_scanned}...")
 
-        if message.video or (message.document and (message.document.mime_type or "").startswith("video/")):
-            video_messages.append(message.id)
+        has_video = False
+        if message.video:
+            has_video = True
+        elif message.document and (message.document.mime_type or "").startswith("video/"):
+            has_video = True
 
-    print(f"✅ {len(video_messages)} ta video topildi ({total_scanned} ta xabardan)")
+        if has_video:
+            video_messages.append({
+                "msg_id": message.id,
+                "caption": message.caption or "",
+                "file_name": None,
+            })
+            if message.document and message.document.file_name:
+                video_messages[-1]["file_name"] = message.document.file_name
 
-    # User app ni yopamiz — endi bot ishlaydi
-    await user_app.stop()
-    print("📱 User akkaunt yopildi")
+    print(f"✅ {len(video_messages)} ta video topildi")
 
-    # Bot orqali guruhdan xabarlarni o'qish
-    print("🤖 Bot orqali import qilinmoqda...")
+    # User akkaunt orqali kinolarni BOTGA yuborish
+    # Bot shaxsiy chatda xabarni ko'radi va file_id oladi
+    print(f"\n📤 Kinolar botga yuborilmoqda...")
     print("=" * 50)
-
-    from pyrogram import Client as PyroClient
-    bot_app = PyroClient(name="bot_importer", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-    await bot_app.start()
-    print("✅ Bot ulandi!")
 
     imported = 0
     failed = 0
     next_code = 1
-    batch_size = 100
 
-    # Batchlarda ishlash
-    for batch_start in range(0, len(video_messages), batch_size):
-        batch = video_messages[batch_start:batch_start + batch_size]
+    BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-        try:
-            # Bot orqali xabarlarni o'qish
-            messages = await bot_app.get_messages(GROUP_ID, batch)
-        except Exception as e:
-            print(f"  ❌ Batch xatosi: {str(e)[:80]}")
-            # Bitta-bitta urinib ko'rish
-            messages = []
-            for mid in batch:
-                try:
-                    msg = await bot_app.get_messages(GROUP_ID, mid)
-                    messages.append(msg)
-                    await asyncio.sleep(0.1)
-                except Exception:
-                    failed += 1
-
-        for bot_msg in messages:
+    async with aiohttp.ClientSession() as http:
+        for i, vmsg in enumerate(video_messages):
             try:
-                if not bot_msg or bot_msg.empty:
+                # User akkaunt guruhdan botga forward qiladi
+                forwarded = await user_app.forward_messages(
+                    chat_id=bot_username,
+                    from_chat_id=GROUP_ID,
+                    message_ids=vmsg["msg_id"],
+                )
+
+                if not forwarded:
                     failed += 1
                     continue
 
-                # File info
-                if bot_msg.video:
-                    file_id = bot_msg.video.file_id
-                    file_unique_id = bot_msg.video.file_unique_id
-                    file_type = "video"
-                    duration = bot_msg.video.duration
-                    file_size = bot_msg.video.file_size
-                elif bot_msg.document and (bot_msg.document.mime_type or "").startswith("video/"):
-                    file_id = bot_msg.document.file_id
-                    file_unique_id = bot_msg.document.file_unique_id
+                fwd = forwarded if not isinstance(forwarded, list) else forwarded[0]
+
+                # Bot API orqali shu xabarni o'qish (getUpdates emas, forward qilingan xabarni)
+                await asyncio.sleep(0.5)
+
+                # Bot API: getUpdates orqali oxirgi xabarni olish
+                async with http.get(f"{BASE_URL}/getUpdates", params={"offset": -1, "limit": 1}) as resp:
+                    data = await resp.json()
+
+                if not data.get("ok") or not data.get("result"):
+                    failed += 1
+                    continue
+
+                update = data["result"][-1]
+                msg_data = update.get("message", {})
+
+                # File info olish
+                file_id = None
+                file_unique_id = None
+                file_type = "video"
+                duration = None
+                file_size = None
+
+                if "video" in msg_data:
+                    v = msg_data["video"]
+                    file_id = v["file_id"]
+                    file_unique_id = v["file_unique_id"]
+                    duration = v.get("duration")
+                    file_size = v.get("file_size")
+                elif "document" in msg_data:
+                    d = msg_data["document"]
+                    file_id = d["file_id"]
+                    file_unique_id = d["file_unique_id"]
+                    file_size = d.get("file_size")
                     file_type = "document"
-                    duration = None
-                    file_size = bot_msg.document.file_size
-                else:
+
+                if not file_id:
                     failed += 1
                     continue
 
                 # Caption dan ma'lumot
-                caption_text = bot_msg.caption or ""
+                caption_text = vmsg["caption"]
                 title = "Nomsiz kino"
 
                 if caption_text:
@@ -157,8 +185,8 @@ async def main():
                             clean_lines.append(clean_line)
                     if clean_lines:
                         title = clean_lines[0][:500]
-                elif bot_msg.document and bot_msg.document.file_name:
-                    fname = bot_msg.document.file_name
+                elif vmsg["file_name"]:
+                    fname = vmsg["file_name"]
                     title = fname.rsplit(".", 1)[0] if "." in fname else fname
 
                 quality = None
@@ -197,14 +225,33 @@ async def main():
                 next_code += 1
                 imported += 1
 
-                if imported % 20 == 0:
-                    print(f"  ✅ {imported} ta qo'shildi... [{code}] {title[:40]}")
+                if imported % 10 == 0:
+                    print(f"  ✅ {imported}/{len(video_messages)} [{code}] {title[:40]}")
+
+                # Forward xabarni o'chirish
+                try:
+                    fwd_id = fwd.id if hasattr(fwd, 'id') else fwd.message_id
+                    await user_app.delete_messages(bot_username, fwd_id)
+                except:
+                    pass
+
+                # Flood himoya
+                if (i + 1) % 15 == 0:
+                    await asyncio.sleep(3)
 
             except Exception as e:
                 failed += 1
-
-        # Batchlar orasida kutish
-        await asyncio.sleep(1)
+                err = str(e).upper()
+                if "FLOOD" in err:
+                    wait = 30
+                    try:
+                        wait = int(re.search(r'(\d+)', str(e)).group(1))
+                    except:
+                        pass
+                    print(f"  ⏳ Flood — {wait} soniya kutilmoqda...")
+                    await asyncio.sleep(wait + 2)
+                elif failed % 20 == 0:
+                    print(f"  ❌ Xato ({failed}): {str(e)[:80]}")
 
     print("\n" + "=" * 50)
     print(f"🎬 IMPORT YAKUNLANDI!")
@@ -212,7 +259,7 @@ async def main():
     print(f"❌ Xato:       {failed}")
     print(f"🔢 Oxirgi kod: {next_code - 1}")
 
-    await bot_app.stop()
+    await user_app.stop()
     await db.close()
     print("👋 Tamom!")
 

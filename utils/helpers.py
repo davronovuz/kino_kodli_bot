@@ -3,9 +3,11 @@ from typing import Optional
 from database.models import Movie
 
 
-def format_movie_caption(movie: Movie, show_code: bool = True) -> str:
-    """Format movie info for display."""
+def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float = 0, rating_count: int = 0) -> str:
+    """Enhanced movie caption with beautiful formatting."""
     lines = []
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━━")
 
     if show_code:
         lines.append(f"🎬 <b>Kod:</b> <code>{movie.code}</code>")
@@ -18,49 +20,59 @@ def format_movie_caption(movie: Movie, show_code: bool = True) -> str:
     if movie.title_ru and movie.title_ru != movie.title:
         lines.append(f"🇷🇺 {movie.title_ru}")
 
+    lines.append("")
+
+    info_parts = []
     if movie.year:
-        lines.append(f"📅 <b>Yil:</b> {movie.year}")
-
+        info_parts.append(f"📅 {movie.year}")
     if movie.quality:
-        lines.append(f"📺 <b>Sifat:</b> {movie.quality}")
-
+        info_parts.append(f"📺 {movie.quality}")
     if movie.language:
-        lines.append(f"🌐 <b>Til:</b> {movie.language}")
+        info_parts.append(f"🌐 {movie.language}")
+
+    if info_parts:
+        lines.append(" │ ".join(info_parts))
 
     if movie.genres:
         genre_str = ", ".join(
             f"{g.emoji or '🎭'} {g.name_uz}" for g in movie.genres
         )
-        lines.append(f"🎭 <b>Janr:</b> {genre_str}")
+        lines.append(f"🎭 {genre_str}")
 
     if movie.duration:
         hours = movie.duration // 3600
         minutes = (movie.duration % 3600) // 60
         if hours:
-            lines.append(f"⏱ <b>Davomiyligi:</b> {hours}s {minutes}d")
+            lines.append(f"⏱ {hours}s {minutes}d")
         else:
-            lines.append(f"⏱ <b>Davomiyligi:</b> {minutes} daqiqa")
+            lines.append(f"⏱ {minutes} daqiqa")
 
     if movie.file_size:
         size_mb = movie.file_size / (1024 * 1024)
         if size_mb > 1024:
-            lines.append(f"📦 <b>Hajmi:</b> {size_mb / 1024:.1f} GB")
+            lines.append(f"📦 {size_mb / 1024:.1f} GB")
         else:
-            lines.append(f"📦 <b>Hajmi:</b> {size_mb:.1f} MB")
+            lines.append(f"📦 {size_mb:.1f} MB")
+
+    if avg_rating > 0:
+        stars = "⭐" * round(avg_rating) + "☆" * (5 - round(avg_rating))
+        lines.append(f"\n{stars} {avg_rating}/5 ({rating_count} ta baho)")
 
     if movie.description:
-        desc = movie.description[:300]
-        if len(movie.description) > 300:
+        desc = movie.description[:200]
+        if len(movie.description) > 200:
             desc += "..."
         lines.append(f"\n📝 {desc}")
 
-    lines.append(f"\n👁 Ko'rildi: {movie.view_count} marta")
+    lines.append("")
+    lines.append(f"👁 {movie.view_count} marta ko'rildi")
+    lines.append("━━━━━━━━━━━━━━━━━━━━━")
+    lines.append(f"🔢 Ulashing: <code>{movie.code}</code>")
 
     return "\n".join(lines)
 
 
 def format_movie_list_item(movie: Movie, index: int = 0) -> str:
-    """Short format for lists."""
     year_str = f" ({movie.year})" if movie.year else ""
     quality_str = f" [{movie.quality}]" if movie.quality else ""
     return f"{index}. <code>{movie.code}</code> — {movie.title}{year_str}{quality_str}"

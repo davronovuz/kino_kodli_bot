@@ -239,3 +239,62 @@ def import_method_kb() -> InlineKeyboardMarkup:
         text="❌ Bekor qilish", callback_data="import:cancel"
     ))
     return builder.as_markup()
+
+
+def movie_detail_kb_v2(movie_id: int, is_favorite: bool = False, avg_rating: float = 0, user_rating: int = 0) -> InlineKeyboardMarkup:
+    """Enhanced movie keyboard with rating and similar."""
+    builder = InlineKeyboardBuilder()
+
+    # Rating tugmalari
+    rating_row = []
+    for i in range(1, 6):
+        star = "⭐" if i <= user_rating else "☆"
+        rating_row.append(InlineKeyboardButton(
+            text=star, callback_data=f"rate:{movie_id}:{i}"
+        ))
+    builder.row(*rating_row)
+
+    if avg_rating > 0:
+        builder.row(InlineKeyboardButton(
+            text=f"📊 Reyting: {avg_rating}/5", callback_data="noop"
+        ))
+
+    # Favorite
+    fav_text = "❌ Sevimlilardan" if is_favorite else "⭐ Sevimlilarga"
+    fav_cb = f"unfav:{movie_id}" if is_favorite else f"fav:{movie_id}"
+    builder.row(InlineKeyboardButton(text=fav_text, callback_data=fav_cb))
+
+    # Similar
+    builder.row(InlineKeyboardButton(
+        text="🎬 Shunga o'xshash kinolar", callback_data=f"similar:{movie_id}"
+    ))
+
+    return builder.as_markup()
+
+
+def similar_movies_kb(movies: list) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for movie in movies:
+        builder.row(InlineKeyboardButton(
+            text=f"🎬 [{movie.code}] {movie.title[:40]}",
+            callback_data=f"viewmovie:{movie.code}"
+        ))
+    return builder.as_markup()
+
+
+def categories_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    cats = [
+        ("🇺🇿 O'zbek tilida", "cat:uzbek"),
+        ("🇷🇺 Rus tilida", "cat:rus"),
+        ("🇰🇷 Koreya", "cat:korean"),
+        ("🇹🇷 Turk", "cat:turk"),
+        ("🇺🇸 Ingliz tilida", "cat:eng"),
+        ("🆕 Yangilari", "cat:new"),
+        ("🔥 Top", "cat:top"),
+        ("🎲 Random", "cat:random"),
+    ]
+    for text, cb in cats:
+        builder.button(text=text, callback_data=cb)
+    builder.adjust(2)
+    return builder.as_markup()

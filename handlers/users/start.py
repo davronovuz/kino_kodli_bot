@@ -3,10 +3,10 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from loguru import logger
 
 from database.repositories import UserRepository
-from keyboards.inline import main_menu_kb, force_join_kb
+from keyboards.reply import main_menu_kb
+from keyboards.inline import force_join_kb
 from config import config
 
 router = Router()
@@ -14,7 +14,6 @@ router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
-    """Handle /start command."""
     await state.clear()
 
     user, is_new = await UserRepository.get_or_create(
@@ -29,7 +28,6 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
         return
 
     if is_new:
-        # Notify admins
         for admin_id in config.admins_list[:3]:
             try:
                 await message.bot.send_message(
@@ -44,13 +42,17 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
                 pass
 
     welcome_text = (
-        f"👋 <b>Assalomu alaykum, {message.from_user.first_name}!</b>\n\n"
-        f"🎬 <b>FastKino Bot</b>ga xush kelibsiz!\n\n"
-        f"📌 <b>Qanday foydalanish:</b>\n"
-        f"• Kino kodini yuboring — masalan: <code>1</code>\n"
-        f"• Kino nomini yozing — masalan: <code>Venom</code>\n"
-        f"• Yoki quyidagi tugmalardan foydalaning\n\n"
-        f"🔍 Qidiruv uchun kino nomini yoki kodini yozing!"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"  🎬 <b>FAST KINO BOT</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👋 Salom, <b>{message.from_user.first_name}</b>!\n\n"
+        f"🔢 Kino <b>kodini</b> yuboring:\n"
+        f"   Masalan: <code>1</code> yoki <code>250</code>\n\n"
+        f"🔤 Kino <b>nomini</b> yozing:\n"
+        f"   Masalan: <code>Venom</code>\n\n"
+        f"🔍 Boshqa chatlarda qidirish:\n"
+        f"   <code>@{(await message.bot.get_me()).username} kino nomi</code>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━"
     )
 
     await message.answer(welcome_text, reply_markup=main_menu_kb(), parse_mode="HTML")
@@ -58,7 +60,6 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
 
 @router.callback_query(F.data == "check_subscription")
 async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot: Bot):
-    """Re-check subscription after user claims to have subscribed."""
     from sqlalchemy import select
     from database.models import Channel
 
@@ -71,8 +72,7 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
     for channel in channels:
         try:
             member = await bot.get_chat_member(
-                chat_id=channel.channel_id,
-                user_id=callback.from_user.id,
+                chat_id=channel.channel_id, user_id=callback.from_user.id,
             )
             if member.status in ("left", "kicked"):
                 not_subscribed.append({
@@ -83,10 +83,7 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
             continue
 
     if not_subscribed:
-        await callback.answer(
-            "❌ Siz hali barcha kanallarga obuna bo'lmadingiz!",
-            show_alert=True,
-        )
+        await callback.answer("❌ Barcha kanallarga obuna bo'ling!", show_alert=True)
         return
 
     await callback.answer("✅ Obuna tasdiqlandi!")
@@ -95,31 +92,24 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
     except Exception:
         pass
 
-    welcome_text = (
-        f"✅ <b>Obuna tasdiqlandi!</b>\n\n"
-        f"🎬 Endi botdan foydalanishingiz mumkin.\n"
-        f"Kino kodini yoki nomini yuboring!"
-    )
     await callback.message.answer(
-        welcome_text, reply_markup=main_menu_kb(), parse_mode="HTML"
+        "✅ Obuna tasdiqlandi! Kino kodini yuboring!",
+        reply_markup=main_menu_kb(),
+        parse_mode="HTML",
     )
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message):
+    bot_me = await message.bot.get_me()
     help_text = (
         "📖 <b>Yordam</b>\n\n"
-        "🔢 <b>Kod bilan qidirish:</b>\n"
-        "Kino kodini yozing, masalan: <code>123</code>\n\n"
-        "🔤 <b>Nom bilan qidirish:</b>\n"
-        "Kino nomini yozing, masalan: <code>Venom</code>\n\n"
+        "🔢 <b>Kod bilan:</b> <code>123</code>\n"
+        "🔤 <b>Nom bilan:</b> <code>Venom</code>\n"
+        "🎲 <b>Random:</b> Tugmani bosing\n"
+        "🔍 <b>Inline:</b> Boshqa chatda <code>@" + bot_me.username + " nom</code>\n\n"
         "📋 <b>Buyruqlar:</b>\n"
-        "/start — Botni ishga tushirish\n"
+        "/start — Boshlash\n"
         "/help — Yordam\n"
-        "/top — Top kinolar\n"
-        "/new — Yangi kinolar\n"
-        "/genres — Janrlar\n"
-        "/favorites — Sevimlilar\n\n"
-        "💡 <b>Maslahat:</b> Kino kodini do'stlaringizga ham ulashing!"
     )
     await message.answer(help_text, parse_mode="HTML")

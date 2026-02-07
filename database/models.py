@@ -149,3 +149,17 @@ class BroadcastMessage(Base):
     status = Column(String(50), default="pending")  # pending, running, completed, cancelled
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+
+
+class Rating(Base):
+    __tablename__ = "ratings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    movie_id = Column(Integer, ForeignKey("movies.id", ondelete="CASCADE"), nullable=False)
+    score = Column(Integer, nullable=False)  # 1-5
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_ratings_user_movie", "user_id", "movie_id", unique=True),
+    )

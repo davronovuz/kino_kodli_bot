@@ -120,7 +120,7 @@ async def main():
     # Start polling
     logger.info("Starting bot polling...")
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(bot, allowed_updates=["message", "callback_query", "inline_query"])
     finally:
         await bot.session.close()
 

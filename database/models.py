@@ -163,3 +163,110 @@ class Rating(Base):
     __table_args__ = (
         Index("ix_ratings_user_movie", "user_id", "movie_id", unique=True),
     )
+
+
+class Serial(Base):
+    __tablename__ = "serials"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(Integer, unique=True, nullable=False, index=True)
+    title = Column(String(500), nullable=False)
+    title_uz = Column(String(500), nullable=True)
+    year = Column(Integer, nullable=True)
+    quality = Column(String(50), nullable=True)
+    language = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+    poster_file_id = Column(String(500), nullable=True)
+    total_seasons = Column(Integer, default=1)
+    is_active = Column(Boolean, default=True)
+    view_count = Column(Integer, default=0)
+    added_by = Column(BigInteger, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    episodes = relationship("Episode", back_populates="serial", lazy="selectin", order_by="Episode.season, Episode.episode_num")
+
+
+class Episode(Base):
+    __tablename__ = "episodes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    serial_id = Column(Integer, ForeignKey("serials.id", ondelete="CASCADE"), nullable=False)
+    season = Column(Integer, default=1)
+    episode_num = Column(Integer, nullable=False)
+    title = Column(String(500), nullable=True)
+    file_id = Column(String(500), nullable=False)
+    file_type = Column(String(50), default="video")
+    file_unique_id = Column(String(200), unique=True, nullable=True)
+    duration = Column(Integer, nullable=True)
+    file_size = Column(BigInteger, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    serial = relationship("Serial", back_populates="episodes")
+
+    __table_args__ = (
+        Index("ix_episodes_serial_season_ep", "serial_id", "season", "episode_num", unique=True),
+    )
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    emoji = Column(String(10), default="🎬")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+collection_movies = Table(
+    "collection_movies",
+    Base.metadata,
+    Column("collection_id", Integer, ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True),
+    Column("movie_id", Integer, ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True),
+    Column("position", Integer, default=0),
+)
+
+
+class Referral(Base):
+    __tablename__ = "referrals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    referrer_id = Column(BigInteger, nullable=False, index=True)
+    referred_id = Column(BigInteger, nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class MovieRequest(Base):
+    __tablename__ = "movie_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    request_text = Column(Text, nullable=False)
+    status = Column(String(50), default="pending")
+    admin_reply = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Advertisement(Base):
+    __tablename__ = "advertisements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    text = Column(Text, nullable=True)
+    photo_file_id = Column(String(500), nullable=True)
+    url = Column(String(500), nullable=True)
+    button_text = Column(String(200), nullable=True)
+    is_active = Column(Boolean, default=True)
+    show_every = Column(Integer, default=5)
+    view_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DailyMovie(Base):
+    __tablename__ = "daily_movies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    movie_id = Column(Integer, ForeignKey("movies.id", ondelete="CASCADE"), nullable=False)
+    date = Column(DateTime, nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

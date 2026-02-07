@@ -25,12 +25,15 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
     return builder.as_markup(resize_keyboard=True)
 
-
 def admin_menu_kb() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.row(
         KeyboardButton(text="➕ Kino qo'shish"),
         KeyboardButton(text="📋 Kinolar ro'yxati"),
+    )
+    builder.row(
+        KeyboardButton(text="✏️ Kino tahrirlash"),
+        KeyboardButton(text="📥 Excel export"),
     )
     builder.row(
         KeyboardButton(text="📊 Statistika"),
@@ -39,6 +42,10 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
     builder.row(
         KeyboardButton(text="📢 Broadcast"),
         KeyboardButton(text="📡 Kanallar"),
+    )
+    builder.row(
+        KeyboardButton(text="📣 Reklama"),
+        KeyboardButton(text="📂 To'plamlar"),
     )
     builder.row(
         KeyboardButton(text="📥 Import kinolar"),

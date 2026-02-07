@@ -5,9 +5,10 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import config
-from database.engine import create_db
+from database.engine import create_db, async_session
 from services.cache_service import CacheService
 from middlewares import (
     ThrottlingMiddleware,
@@ -116,6 +117,41 @@ async def main():
     # Register routers (admin first, then users)
     dp.include_router(get_admin_router())
     dp.include_router(get_users_router())
+
+    # Scheduler — kunlik hisobot
+    scheduler = AsyncIOScheduler()
+
+    async def daily_report():
+        """Har kuni ertalab 9:00 da statistika."""
+        try:
+            async with async_session() as session:
+                from database.repositories import StatsRepository, UserRepository, MovieRepository, DailyMovieRepository
+                stats = await StatsRepository.get_overview(session)
+                daily = await StatsRepository.get_daily_stats(session, days=1)
+
+                # Kunlik kino avtomatik tanlash
+                await DailyMovieRepository.auto_set(session)
+
+                text = (
+                    f"📊 <b>Kunlik hisobot</b>\n\n"
+                    f"👥 Jami userlar: <b>{stats['total_users']}</b>\n"
+                    f"🆕 Bugun qo'shilgan: <b>{stats['today_users']}</b>\n"
+                    f"👁 Bugungi ko'rishlar: <b>{stats['today_views']}</b>\n"
+                    f"🔍 Bugungi qidiruvlar: <b>{daily['searches']}</b>\n"
+                    f"🎬 Jami kinolar: <b>{stats['total_movies']}</b>\n"
+                    f"🟢 Faol userlar (7 kun): <b>{stats['active_7d']}</b>"
+                )
+
+                for admin_id in config.admins_list:
+                    try:
+                        await bot.send_message(admin_id, text, parse_mode="HTML")
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"Daily report error: {e}")
+
+    scheduler.add_job(daily_report, "cron", hour=9, minute=0)
+    scheduler.start()
 
     # Start polling
     logger.info("Starting bot polling...")

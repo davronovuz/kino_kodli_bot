@@ -440,3 +440,90 @@ async def set_daily_movie(message: Message, session: AsyncSession):
 
     await DailyMovieRepository.set_today(session, movie.id)
     await message.answer(f"✅ Bugungi kino: <b>{movie.title}</b>", parse_mode="HTML")
+
+
+# ============== KINO O'CHIRISH ==============
+
+class DeleteMovieStates(StatesGroup):
+    waiting_code = State()
+    waiting_confirm = State()
+
+
+
+
+@router.message(F.text == "🗑 Kino o'chirish")
+async def delete_movie_start(message: Message, state: FSMContext):
+    await state.set_state(DeleteMovieStates.waiting_code)
+    await message.answer(
+        "🗑 <b>Kino o'chirish</b>\n\nKino kodini kiriting:",
+        parse_mode="HTML", reply_markup=cancel_kb(),
+    )
+
+
+@router.message(DeleteMovieStates.waiting_code)
+async def delete_movie_code(message: Message, state: FSMContext, session: AsyncSession):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu_kb())
+        return
+
+    try:
+        code = int(message.text.strip())
+    except ValueError:
+        await message.answer("❌ Raqam kiriting!")
+        return
+
+    movie = await MovieRepository.get_by_code(session, code)
+    if not movie:
+        await message.answer("❌ Kino topilmadi!")
+        return
+
+    await state.update_data(delete_movie_id=movie.id, delete_movie_code=code, delete_movie_title=movie.title)
+    await state.set_state(DeleteMovieStates.waiting_confirm)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Ha, o'chirish", callback_data="confirm_delete:yes"),
+        InlineKeyboardButton(text="❌ Yo'q", callback_data="confirm_delete:no"),
+    )
+
+    await message.answer(
+        f"🗑 Rostdan o'chirilsinmi?\n\n"
+        f"🎬 <b>[{code}] {movie.title}</b>\n"
+        f"👁 Ko'rishlar: {movie.view_count}",
+        parse_mode="HTML", reply_markup=builder.as_markup(),
+    )
+
+
+@router.callback_query(DeleteMovieStates.waiting_confirm, F.data.startswith("confirm_delete:"))
+async def delete_movie_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    answer = callback.data.split(":")[1]
+
+    if answer == "no":
+        await state.clear()
+        await callback.message.edit_text("❌ Bekor qilindi.")
+        await callback.answer()
+        return
+
+    data = await state.get_data()
+    movie_id = data.get("delete_movie_id")
+    code = data.get("delete_movie_code")
+    title = data.get("delete_movie_title")
+
+    try:
+        await MovieRepository.delete_movie(session, movie_id)
+        from services.cache_service import CacheService
+        await CacheService.invalidate_movie(code)
+
+        await callback.message.edit_text(
+            f"✅ O'chirildi!\n\n🎬 <b>[{code}] {title}</b>",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        await callback.message.edit_text(f"❌ Xato: {str(e)[:200]}")
+
+    await state.clear()
+    await callback.answer()

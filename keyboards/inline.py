@@ -33,6 +33,7 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text="✏️ Kino tahrirlash"),
+        KeyboardButton(text="🗑 Kino o'chirish"),
         KeyboardButton(text="📥 Excel export"),
     )
     builder.row(

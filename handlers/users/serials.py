@@ -119,12 +119,18 @@ async def change_season(callback: CallbackQuery, session: AsyncSession):
 
     text = format_serial_info(serial)
     kb = episodes_keyboard(serial, season, page)
+
+    # Agar text xabar bo'lsa — edit qilamiz, aks holda eskisini o'chirib yangi yuboramiz
     try:
         await callback.message.edit_text(
             text, parse_mode="HTML", reply_markup=kb
         )
     except Exception:
-        # Video/document xabarni edit qilib bo'lmaydi — yangi xabar yuboramiz
+        # Video/document xabarni edit qilib bo'lmaydi
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
         await callback.message.answer(
             text, parse_mode="HTML", reply_markup=kb
         )
@@ -184,6 +190,12 @@ async def send_episode(callback: CallbackQuery, session: AsyncSession):
         text="📋 Barcha qismlar",
         callback_data=f"sseason:{serial_id}:{season}:1"
     ))
+
+    # Eski xabarni o'chirish (chat tozaroq bo'lishi uchun)
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
 
     try:
         if ep.file_type == "video":

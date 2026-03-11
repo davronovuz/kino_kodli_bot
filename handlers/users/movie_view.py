@@ -96,13 +96,24 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
 async def search_by_code(message: Message, session: AsyncSession):
     code = int(message.text.strip())
     movie = await MovieRepository.get_by_code(session, code)
-    if not movie:
-        await message.answer(
-            f"❌ <code>{code}</code> kodli kino topilmadi.",
-            parse_mode="HTML",
-        )
+    if movie:
+        await send_movie(message, movie, session, message.from_user.id)
         return
-    await send_movie(message, movie, session, message.from_user.id)
+
+    # Kinoda topilmasa serialdan qidirish
+    from database.repositories import SerialRepository
+    serial = await SerialRepository.get_by_code(session, code)
+    if serial:
+        from handlers.users.serials import format_serial_info, episodes_keyboard
+        text = format_serial_info(serial)
+        kb = episodes_keyboard(serial, season=1) if serial.episodes else None
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
+        return
+
+    await message.answer(
+        f"❌ <code>{code}</code> kodli kino yoki serial topilmadi.",
+        parse_mode="HTML",
+    )
 
 
 # ============== RANDOM KINO ==============

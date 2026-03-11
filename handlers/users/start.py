@@ -86,14 +86,48 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
         await callback.answer("❌ Barcha kanallarga obuna bo'ling!", show_alert=True)
         return
 
+    # Userni DB ga saqlash (agar hali saqlanmagan bo'lsa)
+    user, is_new = await UserRepository.get_or_create(
+        session,
+        telegram_id=callback.from_user.id,
+        username=callback.from_user.username,
+        full_name=callback.from_user.full_name,
+    )
+
+    if is_new:
+        for admin_id in config.admins_list[:3]:
+            try:
+                await callback.bot.send_message(
+                    admin_id,
+                    f"👤 <b>Yangi foydalanuvchi!</b>\n"
+                    f"Ism: {callback.from_user.full_name}\n"
+                    f"Username: @{callback.from_user.username}\n"
+                    f"ID: <code>{callback.from_user.id}</code>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
     await callback.answer("✅ Obuna tasdiqlandi!")
     try:
         await callback.message.delete()
     except Exception:
         pass
 
+    welcome_text = (
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"  🎬 <b>FAST KINO BOT</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👋 Salom, <b>{callback.from_user.first_name}</b>!\n\n"
+        f"🔢 Kino <b>kodini</b> yuboring:\n"
+        f"   Masalan: <code>1</code> yoki <code>250</code>\n\n"
+        f"🔤 Kino <b>nomini</b> yozing:\n"
+        f"   Masalan: <code>Venom</code>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━"
+    )
+
     await callback.message.answer(
-        "✅ Obuna tasdiqlandi! Kino kodini yuboring!",
+        welcome_text,
         reply_markup=main_menu_kb(),
         parse_mode="HTML",
     )

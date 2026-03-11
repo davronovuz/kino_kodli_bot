@@ -17,6 +17,7 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
         KeyboardButton(text="⭐ Sevimlilar"),
     )
     builder.row(
+        KeyboardButton(text="🎬 Janrlar"),
         KeyboardButton(text="📊 Mening statistikam"),
     )
     return builder.as_markup(resize_keyboard=True)

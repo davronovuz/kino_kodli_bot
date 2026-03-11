@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 from database.models import Channel
+from database.repositories import UserRepository
 from keyboards.inline import force_join_kb
 
 
@@ -38,6 +39,17 @@ class ForceJoinMiddleware(BaseMiddleware):
         session: AsyncSession = data.get("session")
         if not session:
             return await handler(event, data)
+
+        # Har qanday holatda userni DB ga saqlash
+        try:
+            await UserRepository.get_or_create(
+                session,
+                telegram_id=user.id,
+                username=user.username,
+                full_name=user.full_name,
+            )
+        except Exception as e:
+            logger.error(f"Error saving user {user.id}: {e}")
 
         bot: Bot = data.get("bot")
         if not bot:

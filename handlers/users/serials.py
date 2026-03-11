@@ -99,7 +99,7 @@ async def show_serials(message: Message, session: AsyncSession):
     for i, s in enumerate(serials, 1):
         ep_count = len(s.episodes) if s.episodes else 0
         year_str = f" ({s.year})" if s.year else ""
-        text += f"{i}. <code>{s.code}</code> — {s.title}{year_str} [{ep_count} qism]\n"
+        text += f"{i}. 📺 {s.title}{year_str} [{ep_count} qism]\n   📎 Kod: <code>{s.code}</code>\n"
     text += "\n🔢 Serial kodini yuboring."
 
     await message.answer(text, parse_mode="HTML")
@@ -118,12 +118,16 @@ async def change_season(callback: CallbackQuery, session: AsyncSession):
         return
 
     text = format_serial_info(serial)
+    kb = episodes_keyboard(serial, season, page)
     try:
         await callback.message.edit_text(
-            text, parse_mode="HTML", reply_markup=episodes_keyboard(serial, season, page)
+            text, parse_mode="HTML", reply_markup=kb
         )
     except Exception:
-        pass
+        # Video/document xabarni edit qilib bo'lmaydi — yangi xabar yuboramiz
+        await callback.message.answer(
+            text, parse_mode="HTML", reply_markup=kb
+        )
     await callback.answer()
 
 
@@ -140,8 +144,15 @@ async def send_episode(callback: CallbackQuery, session: AsyncSession):
         return
 
     serial = await SerialRepository.get_by_id(session, serial_id)
-    await SerialRepository.increment_view(session, serial_id)
-    await UserRepository.increment_watched(session, callback.from_user.id)
+    if not serial:
+        await callback.answer("Serial topilmadi")
+        return
+
+    try:
+        await SerialRepository.increment_view(session, serial_id)
+        await UserRepository.increment_watched(session, callback.from_user.id)
+    except Exception as e:
+        logger.error(f"Increment error: {e}")
 
     caption = (
         f"📺 <b>{serial.title}</b>\n"

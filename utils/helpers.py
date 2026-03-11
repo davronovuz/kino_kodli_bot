@@ -75,7 +75,8 @@ def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float
 def format_movie_list_item(movie: Movie, index: int = 0) -> str:
     year_str = f" ({movie.year})" if movie.year else ""
     quality_str = f" [{movie.quality}]" if movie.quality else ""
-    return f"{index}. <code>{movie.code}</code> — {movie.title}{year_str}{quality_str}"
+    title = movie.title or "Nomsiz kino"
+    return f"{index}. 🎬 {title}{year_str}{quality_str}\n   📎 Kod: <code>{movie.code}</code>"
 
 
 def calculate_pages(total: int, per_page: int) -> int:

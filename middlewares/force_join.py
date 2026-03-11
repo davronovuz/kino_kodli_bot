@@ -9,6 +9,7 @@ from loguru import logger
 from database.models import Channel
 from database.repositories import UserRepository
 from keyboards.inline import force_join_kb
+from config import config
 
 
 class ForceJoinMiddleware(BaseMiddleware):
@@ -42,12 +43,28 @@ class ForceJoinMiddleware(BaseMiddleware):
 
         # Har qanday holatda userni DB ga saqlash
         try:
-            await UserRepository.get_or_create(
+            db_user, is_new = await UserRepository.get_or_create(
                 session,
                 telegram_id=user.id,
                 username=user.username,
                 full_name=user.full_name,
             )
+            # Yangi user bo'lsa adminlarga xabar
+            if is_new:
+                bot_instance: Bot = data.get("bot")
+                if bot_instance:
+                    for admin_id in config.admins_list[:3]:
+                        try:
+                            await bot_instance.send_message(
+                                admin_id,
+                                f"👤 <b>Yangi foydalanuvchi!</b>\n"
+                                f"Ism: {user.full_name}\n"
+                                f"Username: @{user.username}\n"
+                                f"ID: <code>{user.id}</code>",
+                                parse_mode="HTML",
+                            )
+                        except Exception:
+                            pass
         except Exception as e:
             logger.error(f"Error saving user {user.id}: {e}")
 

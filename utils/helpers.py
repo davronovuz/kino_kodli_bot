@@ -12,7 +12,7 @@ def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float
     if show_code:
         lines.append(f"🎬 <b>Kod:</b> <code>{movie.code}</code>")
 
-    lines.append(f"📽 <b>{movie.title}</b>")
+    lines.append(f"📽 <b>{clean_title(movie.title) if movie.title else 'Nomsiz'}</b>")
 
     if movie.title_uz and movie.title_uz != movie.title:
         lines.append(f"🇺🇿 {movie.title_uz}")
@@ -72,10 +72,22 @@ def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float
     return "\n".join(lines)
 
 
+def clean_title(raw_title: str) -> str:
+    """DB dagi title'dan keraksiz prefixlarni tozalash."""
+    import re
+    title = raw_title.strip()
+    # Emoji va prefixlarni olib tashlash
+    title = re.sub(r'^[#🎬📽🎥\s]+', '', title)
+    # "Nomi:", "Film nomi:", "Kod:" prefixlarni olib tashlash
+    title = re.sub(r'^(?:Film\s+)?[Nn]omi\s*:\s*', '', title)
+    title = re.sub(r'^Kod\s*:\s*\d+\s*', '', title)
+    return title.strip() or raw_title.strip()
+
+
 def format_movie_list_item(movie: Movie, index: int = 0) -> str:
     year_str = f" ({movie.year})" if movie.year else ""
     quality_str = f" [{movie.quality}]" if movie.quality else ""
-    title = movie.title or "Nomsiz kino"
+    title = clean_title(movie.title) if movie.title else "Nomsiz kino"
     return f"{index}. 🎬 {title}{year_str}{quality_str}\n   📎 Kod: <code>{movie.code}</code>"
 
 

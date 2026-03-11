@@ -288,10 +288,12 @@ def movie_detail_kb_v2(movie_id: int, is_favorite: bool = False, avg_rating: flo
 
 
 def similar_movies_kb(movies: list) -> InlineKeyboardMarkup:
+    from utils.helpers import clean_title
     builder = InlineKeyboardBuilder()
     for movie in movies:
+        title = clean_title(movie.title) if movie.title else "Nomsiz"
         builder.row(InlineKeyboardButton(
-            text=f"🎬 [{movie.code}] {movie.title[:40]}",
+            text=f"🎬 [{movie.code}] {title[:40]}",
             callback_data=f"viewmovie:{movie.code}"
         ))
     return builder.as_markup()

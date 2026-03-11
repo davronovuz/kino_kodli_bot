@@ -306,7 +306,8 @@ async def show_similar(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("O'xshash kinolar topilmadi")
         return
 
-    text = f"🎬 <b>«{movie.title}»</b> ga o'xshash kinolar:\n\n"
+    from utils.helpers import clean_title
+    text = f"🎬 <b>«{clean_title(movie.title)}»</b> ga o'xshash kinolar:\n\n"
     for i, m in enumerate(similar, 1):
         text += format_movie_list_item(m, i) + "\n"
     text += "\n🔢 Kodini yuboring."

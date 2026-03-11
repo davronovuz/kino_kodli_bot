@@ -694,6 +694,17 @@ async def serial_episodes_list(callback: CallbackQuery, session: AsyncSession):
     from aiogram.types import InlineKeyboardButton
 
     builder = InlineKeyboardBuilder()
+    # Har bir qism uchun o'chirish tugmasi
+    for season in seasons:
+        season_eps = sorted(
+            [e for e in episodes if e.season == season],
+            key=lambda x: x.episode_num
+        )
+        for ep in season_eps:
+            builder.row(InlineKeyboardButton(
+                text=f"🗑 {season}-fasl {ep.episode_num}-qism",
+                callback_data=f"seradm_delep:{ep.id}:{serial_id}"
+            ))
     builder.row(
         InlineKeyboardButton(text="📥 Qism qo'shish", callback_data=f"seradm_addep:{serial_id}"),
     )
@@ -742,6 +753,13 @@ async def delete_serial_action(callback: CallbackQuery, session: AsyncSession):
         title = serial.title
         code = serial.code
         await SerialRepository.delete_serial(session, serial_id)
+
+        from database.repositories import AdminLogRepository
+        await AdminLogRepository.log(
+            session, callback.from_user.id,
+            "serial_delete", f"[{code}] {title}"
+        )
+
         await callback.message.edit_text(
             f"✅ Serial o'chirildi!\n\n📺 [{code}] {title}",
             parse_mode="HTML",
@@ -751,3 +769,62 @@ async def delete_serial_action(callback: CallbackQuery, session: AsyncSession):
         await callback.message.edit_text("❌ Serial topilmadi.")
 
     await callback.answer()
+
+
+# ============== QISM O'CHIRISH ==============
+
+@router.callback_query(F.data.startswith("seradm_delep:"))
+async def delete_episode_confirm(callback: CallbackQuery):
+    parts = callback.data.split(":")
+    ep_id = int(parts[1])
+    serial_id = int(parts[2])
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="✅ Ha, o'chirish", callback_data=f"seradm_delepok:{ep_id}:{serial_id}"),
+        InlineKeyboardButton(text="❌ Yo'q", callback_data=f"seradm_eps:{serial_id}"),
+    )
+    await callback.message.edit_text(
+        "🗑 <b>Bu qismni o'chirmoqchimisiz?</b>\n\n"
+        "⚠️ Qaytarib bo'lmaydi!",
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("seradm_delepok:"))
+async def delete_episode_action(callback: CallbackQuery, session: AsyncSession):
+    parts = callback.data.split(":")
+    ep_id = int(parts[1])
+    serial_id = int(parts[2])
+
+    ep = await SerialRepository.get_episode_by_id(session, ep_id)
+    if ep:
+        info = f"S{ep.season}E{ep.episode_num}"
+        await SerialRepository.delete_episode(session, ep_id)
+
+        from database.repositories import AdminLogRepository
+        await AdminLogRepository.log(
+            session, callback.from_user.id,
+            "episode_delete", f"Serial #{serial_id} {info}"
+        )
+
+        await callback.answer(f"✅ {info} o'chirildi!")
+    else:
+        await callback.answer("Qism topilmadi!")
+
+    # Qismlar ro'yxatiga qaytish
+    serial = await SerialRepository.get_by_id(session, serial_id)
+    if serial and serial.episodes:
+        # Simulate callback to refresh episode list
+        callback.data = f"seradm_eps:{serial_id}"
+        await serial_episodes_list(callback, session)
+    else:
+        await callback.message.edit_text(
+            "📭 Bu serialda qismlar yo'q.",
+            reply_markup=serial_detail_kb(serial_id),
+        )

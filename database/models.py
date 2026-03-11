@@ -270,3 +270,64 @@ class DailyMovie(Base):
     movie_id = Column(Integer, ForeignKey("movies.id", ondelete="CASCADE"), nullable=False)
     date = Column(DateTime, nullable=False, unique=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class WatchHistory(Base):
+    __tablename__ = "watch_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False, index=True)
+    movie_id = Column(Integer, ForeignKey("movies.id", ondelete="CASCADE"), nullable=True)
+    serial_id = Column(Integer, ForeignKey("serials.id", ondelete="CASCADE"), nullable=True)
+    season = Column(Integer, nullable=True)
+    episode_num = Column(Integer, nullable=True)
+    watched_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_watch_history_user", "user_id", "watched_at"),
+    )
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    movie_id = Column(Integer, ForeignKey("movies.id", ondelete="CASCADE"), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_reviews_movie", "movie_id"),
+        Index("ix_reviews_user_movie", "user_id", "movie_id", unique=True),
+    )
+
+
+class SerialProgress(Base):
+    __tablename__ = "serial_progress"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    serial_id = Column(Integer, ForeignKey("serials.id", ondelete="CASCADE"), nullable=False)
+    last_season = Column(Integer, default=1)
+    last_episode = Column(Integer, default=1)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_serial_progress_user_serial", "user_id", "serial_id", unique=True),
+    )
+
+
+class AdminLog(Base):
+    __tablename__ = "admin_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    admin_id = Column(BigInteger, nullable=False)
+    action = Column(String(100), nullable=False)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_admin_logs_admin", "admin_id"),
+        Index("ix_admin_logs_created", "created_at"),
+    )

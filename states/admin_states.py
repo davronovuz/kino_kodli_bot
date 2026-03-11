@@ -62,3 +62,7 @@ class AddEpisodeStates(StatesGroup):
     waiting_title = State()
     waiting_file = State()
     confirm = State()
+
+
+class ReviewStates(StatesGroup):
+    waiting_text = State()

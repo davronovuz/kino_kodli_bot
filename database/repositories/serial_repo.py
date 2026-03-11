@@ -110,3 +110,14 @@ class SerialRepository:
         result = await session.execute(delete(Serial).where(Serial.id == serial_id))
         await session.commit()
         return result.rowcount > 0
+
+    @staticmethod
+    async def delete_episode(session: AsyncSession, episode_id: int) -> bool:
+        result = await session.execute(delete(Episode).where(Episode.id == episode_id))
+        await session.commit()
+        return result.rowcount > 0
+
+    @staticmethod
+    async def get_episode_by_id(session: AsyncSession, episode_id: int) -> Optional[Episode]:
+        result = await session.execute(select(Episode).where(Episode.id == episode_id))
+        return result.scalar_one_or_none()

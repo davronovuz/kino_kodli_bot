@@ -4,7 +4,10 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
-from database.repositories import SerialRepository, UserRepository, StatsRepository
+from database.repositories import (
+    SerialRepository, UserRepository, StatsRepository,
+    WatchHistoryRepository, SerialProgressRepository,
+)
 from keyboards.reply import main_menu_kb
 from config import config
 
@@ -33,8 +36,15 @@ def format_serial_info(serial) -> str:
     return "\n".join(lines)
 
 
-def episodes_keyboard(serial, season: int = 1, page: int = 1):
+def episodes_keyboard(serial, season: int = 1, page: int = 1, resume_season: int = None, resume_ep: int = None):
     builder = InlineKeyboardBuilder()
+
+    # Davom ettirish tugmasi
+    if resume_season and resume_ep:
+        builder.row(InlineKeyboardButton(
+            text=f"▶️ Davom ettirish ({resume_season}-fasl, {resume_ep}-qism)",
+            callback_data=f"sep:{serial.id}:{resume_season}:{resume_ep}"
+        ))
 
     episodes = sorted(
         [e for e in serial.episodes if e.season == season],
@@ -157,8 +167,15 @@ async def send_episode(callback: CallbackQuery, session: AsyncSession):
     try:
         await SerialRepository.increment_view(session, serial_id)
         await UserRepository.increment_watched(session, callback.from_user.id)
+        await SerialProgressRepository.save(
+            session, callback.from_user.id, serial_id, season, ep_num
+        )
+        await WatchHistoryRepository.add(
+            session, user_id=callback.from_user.id,
+            serial_id=serial_id, season=season, episode_num=ep_num,
+        )
     except Exception as e:
-        logger.error(f"Increment error: {e}")
+        logger.error(f"Increment/progress error: {e}")
 
     caption = (
         f"📺 <b>{serial.title}</b>\n"

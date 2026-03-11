@@ -25,7 +25,11 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text="⭐ Sevimlilar"),
+        KeyboardButton(text="📜 Tarix"),
+    )
+    builder.row(
         KeyboardButton(text="🎬 Janrlar"),
+        KeyboardButton(text="🔎 Filtr"),
     )
     return builder.as_markup(resize_keyboard=True)
 
@@ -57,6 +61,9 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text="📂 To'plamlar"),
+        KeyboardButton(text="📋 Audit log"),
+    )
+    builder.row(
         KeyboardButton(text="🔙 Asosiy menyu"),
     )
     return builder.as_markup(resize_keyboard=True)
@@ -279,7 +286,11 @@ def movie_detail_kb_v2(movie_id: int, is_favorite: bool = False, avg_rating: flo
     fav_cb = f"unfav:{movie_id}" if is_favorite else f"fav:{movie_id}"
     builder.row(InlineKeyboardButton(text=fav_text, callback_data=fav_cb))
 
-    # Similar
+    # Review + Similar
+    builder.row(
+        InlineKeyboardButton(text="💬 Sharhlar", callback_data=f"reviews:{movie_id}"),
+        InlineKeyboardButton(text="✍️ Sharh yozish", callback_data=f"wreview:{movie_id}"),
+    )
     builder.row(InlineKeyboardButton(
         text="🎬 Shunga o'xshash kinolar", callback_data=f"similar:{movie_id}"
     ))
@@ -296,6 +307,54 @@ def similar_movies_kb(movies: list) -> InlineKeyboardMarkup:
             text=f"🎬 [{movie.code}] {title[:40]}",
             callback_data=f"viewmovie:{movie.code}"
         ))
+    return builder.as_markup()
+
+
+def filter_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="📅 Yil bo'yicha", callback_data="filter:year"),
+        InlineKeyboardButton(text="📺 Sifat bo'yicha", callback_data="filter:quality"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🌐 Til bo'yicha", callback_data="filter:lang"),
+    )
+    return builder.as_markup()
+
+
+def filter_year_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for year in range(2026, 2019, -1):
+        builder.button(text=str(year), callback_data=f"fy:{year}")
+    builder.adjust(3)
+    builder.row(
+        InlineKeyboardButton(text="2015-2019", callback_data="fy:2015-2019"),
+        InlineKeyboardButton(text="2010-2014", callback_data="fy:2010-2014"),
+    )
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="filter:back"))
+    return builder.as_markup()
+
+
+def filter_quality_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for q in ["360p", "480p", "720p", "1080p", "4K"]:
+        builder.button(text=q, callback_data=f"fq:{q}")
+    builder.adjust(3)
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="filter:back"))
+    return builder.as_markup()
+
+
+def filter_lang_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    langs = [
+        ("🇺🇿 O'zbek", "uzbek"), ("🇷🇺 Rus", "rus"),
+        ("🇺🇸 Ingliz", "eng"), ("🇹🇷 Turk", "turk"),
+        ("🇰🇷 Koreya", "korean"),
+    ]
+    for text, code in langs:
+        builder.button(text=text, callback_data=f"fl:{code}")
+    builder.adjust(2)
+    builder.row(InlineKeyboardButton(text="🔙 Orqaga", callback_data="filter:back"))
     return builder.as_markup()
 
 

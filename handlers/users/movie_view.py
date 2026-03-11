@@ -4,14 +4,19 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
-from database.repositories import MovieRepository, UserRepository, StatsRepository
+from database.repositories import (
+    MovieRepository, UserRepository, StatsRepository,
+    WatchHistoryRepository, ReviewRepository,
+)
 from keyboards.inline import (
     movie_detail_kb_v2, pagination_kb, similar_movies_kb, categories_kb,
+    filter_kb, filter_year_kb, filter_quality_kb, filter_lang_kb,
 )
 from keyboards.reply import main_menu_kb
-from utils.helpers import format_movie_caption, format_movie_list_item, calculate_pages
+from utils.helpers import format_movie_caption, format_movie_list_item, calculate_pages, clean_title
 from services.cache_service import CacheService
 from config import config
+from states.admin_states import ReviewStates
 
 router = Router()
 
@@ -23,6 +28,10 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
     await StatsRepository.log_action(
         session, "view", user_id=user_telegram_id, movie_id=movie.id
     )
+    try:
+        await WatchHistoryRepository.add(session, user_id=user_telegram_id, movie_id=movie.id)
+    except Exception:
+        pass
 
     # Get rating info
     avg_rating, rating_count = await MovieRepository.get_avg_rating(session, movie.id)
@@ -101,12 +110,25 @@ async def search_by_code(message: Message, session: AsyncSession):
         return
 
     # Kinoda topilmasa serialdan qidirish
-    from database.repositories import SerialRepository
+    from database.repositories import SerialRepository, SerialProgressRepository
     serial = await SerialRepository.get_by_code(session, code)
     if serial:
         from handlers.users.serials import format_serial_info, episodes_keyboard
         text = format_serial_info(serial)
-        kb = episodes_keyboard(serial, season=1) if serial.episodes else None
+
+        # Davom ettirish tekshirish
+        progress = await SerialProgressRepository.get(
+            session, message.from_user.id, serial.id
+        )
+        if progress and serial.episodes:
+            text += f"\n▶️ <b>Davom:</b> {progress.last_season}-fasl, {progress.last_episode}-qism"
+
+        if serial.episodes and progress:
+            kb = episodes_keyboard(serial, season=1, resume_season=progress.last_season, resume_ep=progress.last_episode)
+        elif serial.episodes:
+            kb = episodes_keyboard(serial, season=1)
+        else:
+            kb = None
         await message.answer(text, parse_mode="HTML", reply_markup=kb)
         return
 
@@ -182,7 +204,8 @@ async def search_by_text(message: Message, session: AsyncSession, state: FSMCont
         "📩 Kino so'rash", "🎬 Bugungi kino", "🏆 Leaderboard",
         "✏️ Kino tahrirlash", "🗑 Kino o'chirish", "📥 Excel export",
         "📣 Reklama", "📂 To'plamlar", "📺 Seriallar",
-        "📺 Seriallar boshqaruvi",
+        "📺 Seriallar boshqaruvi", "📜 Tarix", "🔎 Filtr",
+        "📋 Audit log",
     }
     if message.text in menu_buttons:
         return
@@ -306,7 +329,6 @@ async def show_similar(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("O'xshash kinolar topilmadi")
         return
 
-    from utils.helpers import clean_title
     text = f"🎬 <b>«{clean_title(movie.title)}»</b> ga o'xshash kinolar:\n\n"
     for i, m in enumerate(similar, 1):
         text += format_movie_list_item(m, i) + "\n"
@@ -419,6 +441,246 @@ async def remove_from_favorites(callback: CallbackQuery, session: AsyncSession):
         await callback.message.edit_reply_markup(reply_markup=kb)
     except Exception:
         pass
+
+
+# ============== WATCH HISTORY ==============
+
+@router.message(F.text == "📜 Tarix")
+async def show_watch_history(message: Message, session: AsyncSession):
+    movies = await WatchHistoryRepository.get_movie_history(
+        session, message.from_user.id, limit=10
+    )
+    if not movies:
+        await message.answer(
+            "📜 <b>Ko'rish tarixingiz bo'sh.</b>\n\nKino ko'ring, bu yerda saqlanadi!",
+            parse_mode="HTML",
+        )
+        return
+
+    text = "📜 <b>Oxirgi ko'rgan kinolaringiz:</b>\n\n"
+    for i, movie in enumerate(movies, 1):
+        text += format_movie_list_item(movie, i) + "\n"
+    text += "\n🔢 Kodini yuboring."
+    await message.answer(text, parse_mode="HTML")
+
+
+# ============== REVIEWS ==============
+
+@router.callback_query(F.data.startswith("reviews:"))
+async def show_reviews(callback: CallbackQuery, session: AsyncSession):
+    movie_id = int(callback.data.split(":")[1])
+    movie = await MovieRepository.get_by_id(session, movie_id)
+    if not movie:
+        await callback.answer("Kino topilmadi")
+        return
+
+    reviews = await ReviewRepository.get_for_movie(session, movie_id, limit=5)
+    count = await ReviewRepository.get_count(session, movie_id)
+
+    if not reviews:
+        await callback.answer("Hali sharhlar yo'q. Birinchi bo'lib yozing!")
+        return
+
+    title = clean_title(movie.title) if movie.title else "Nomsiz"
+    text = f"💬 <b>«{title}»</b> sharhlari ({count} ta):\n\n"
+    for r in reviews:
+        user = await UserRepository.get_by_telegram_id(session, r.user_id)
+        name = user.full_name if user else "Foydalanuvchi"
+        date_str = r.created_at.strftime("%d.%m.%Y")
+        text += f"👤 <b>{name}</b> ({date_str}):\n{r.text[:150]}\n\n"
+
+    await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("wreview:"))
+async def write_review_start(callback: CallbackQuery, state: FSMContext):
+    movie_id = int(callback.data.split(":")[1])
+    await state.set_state(ReviewStates.waiting_text)
+    await state.update_data(review_movie_id=movie_id)
+    await callback.message.answer(
+        "✍️ <b>Sharh yozing:</b>\n\nKino haqida fikringizni qisqacha yozing (5-500 belgi):",
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.message(ReviewStates.waiting_text)
+async def write_review_text(message: Message, state: FSMContext, session: AsyncSession):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=main_menu_kb())
+        return
+
+    text = message.text.strip()
+    if len(text) < 5:
+        await message.answer("❌ Kamida 5 ta belgi yozing!")
+        return
+    if len(text) > 500:
+        await message.answer("❌ 500 belgidan oshmasligi kerak!")
+        return
+
+    data = await state.get_data()
+    movie_id = data.get("review_movie_id")
+    if not movie_id:
+        await state.clear()
+        return
+
+    await ReviewRepository.add_or_update(session, message.from_user.id, movie_id, text)
+    await state.clear()
+
+    movie = await MovieRepository.get_by_id(session, movie_id)
+    title = clean_title(movie.title) if movie and movie.title else "Kino"
+    await message.answer(
+        f"✅ <b>Sharh saqlandi!</b>\n\n"
+        f"🎬 {title}\n💬 {text[:100]}",
+        parse_mode="HTML",
+        reply_markup=main_menu_kb(),
+    )
+
+
+# ============== FILTER ==============
+
+@router.message(F.text == "🔎 Filtr")
+async def show_filter(message: Message):
+    await message.answer(
+        "🔎 <b>Filtr bo'yicha qidirish</b>\n\nQaysi filtr bo'yicha qidirasiz?",
+        reply_markup=filter_kb(),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(F.data == "filter:back")
+async def filter_back(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🔎 <b>Filtr bo'yicha qidirish</b>\n\nQaysi filtr bo'yicha qidirasiz?",
+        reply_markup=filter_kb(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "filter:year")
+async def filter_year_menu(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📅 <b>Yilni tanlang:</b>",
+        reply_markup=filter_year_kb(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "filter:quality")
+async def filter_quality_menu(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "📺 <b>Sifatni tanlang:</b>",
+        reply_markup=filter_quality_kb(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "filter:lang")
+async def filter_lang_menu(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🌐 <b>Tilni tanlang:</b>",
+        reply_markup=filter_lang_kb(),
+        parse_mode="HTML",
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("fy:"))
+async def filter_by_year(callback: CallbackQuery, session: AsyncSession):
+    year_str = callback.data.split(":")[1]
+
+    if "-" in year_str:
+        parts = year_str.split("-")
+        year_from, year_to = int(parts[0]), int(parts[1])
+        from sqlalchemy import select as sa_select, func as sa_func
+        from database.models import Movie as M
+        result = await session.execute(
+            sa_select(M).where(
+                M.year >= year_from, M.year <= year_to, M.is_active == True
+            ).order_by(M.year.desc(), M.view_count.desc()).limit(config.MOVIES_PER_PAGE)
+        )
+        movies = result.scalars().all()
+        title = f"📅 {year_from}-{year_to} yillar"
+    else:
+        year = int(year_str)
+        movies, _ = await MovieRepository.get_by_year(session, year, limit=config.MOVIES_PER_PAGE)
+        title = f"📅 {year}-yil kinolari"
+
+    if not movies:
+        await callback.answer("Bu yilda kinolar topilmadi")
+        return
+
+    text = f"<b>{title}:</b>\n\n"
+    for i, movie in enumerate(movies, 1):
+        text += format_movie_list_item(movie, i) + "\n"
+    text += "\n🔢 Kodini yuboring."
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("fq:"))
+async def filter_by_quality(callback: CallbackQuery, session: AsyncSession):
+    quality = callback.data.split(":")[1]
+    from sqlalchemy import select as sa_select
+    from database.models import Movie as M
+    result = await session.execute(
+        sa_select(M).where(
+            M.quality == quality, M.is_active == True
+        ).order_by(M.view_count.desc()).limit(config.MOVIES_PER_PAGE)
+    )
+    movies = result.scalars().all()
+
+    if not movies:
+        await callback.answer(f"{quality} sifatida kinolar topilmadi")
+        return
+
+    text = f"📺 <b>{quality} sifatidagi kinolar:</b>\n\n"
+    for i, movie in enumerate(movies, 1):
+        text += format_movie_list_item(movie, i) + "\n"
+    text += "\n🔢 Kodini yuboring."
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("fl:"))
+async def filter_by_lang(callback: CallbackQuery, session: AsyncSession):
+    lang_key = callback.data.split(":")[1]
+    lang_names = {
+        "uzbek": "🇺🇿 O'zbek tilida", "rus": "🇷🇺 Rus tilida",
+        "eng": "🇺🇸 Ingliz tilida", "turk": "🇹🇷 Turk tilida",
+        "korean": "🇰🇷 Koreya tilida",
+    }
+    movies, _ = await MovieRepository.get_by_language(
+        session, lang_key, limit=config.MOVIES_PER_PAGE
+    )
+    if not movies:
+        await callback.answer("Bu tilda kinolar topilmadi")
+        return
+
+    title = lang_names.get(lang_key, "Kinolar")
+    text = f"<b>{title}:</b>\n\n"
+    for i, movie in enumerate(movies, 1):
+        text += format_movie_list_item(movie, i) + "\n"
+    text += "\n🔢 Kodini yuboring."
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
 
 
 # ============== INLINE SEARCH ==============

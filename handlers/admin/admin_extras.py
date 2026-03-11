@@ -12,6 +12,7 @@ from database.repositories import (
     MovieRepository, StatsRepository, UserRepository,
     CollectionRepository, AdvertisementRepository,
     DailyMovieRepository, MovieRequestRepository,
+    AdminLogRepository,
 )
 from keyboards.inline import admin_menu_kb, confirm_kb, cancel_kb
 from config import config
@@ -150,6 +151,11 @@ async def edit_field_value(message: Message, state: FSMContext, session: AsyncSe
 
         kwargs = {field: value}
         movie = await MovieRepository.update_movie(session, movie_id, **kwargs)
+
+        await AdminLogRepository.log(
+            session, message.from_user.id,
+            "movie_edit", f"[{data.get('edit_movie_code')}] {field}={value}"
+        )
 
         from services.cache_service import CacheService
         await CacheService.invalidate_movie(data.get("edit_movie_code", 0))
@@ -515,6 +521,10 @@ async def delete_movie_confirm(callback: CallbackQuery, state: FSMContext, sessi
 
     try:
         await MovieRepository.delete_movie(session, movie_id)
+        await AdminLogRepository.log(
+            session, callback.from_user.id,
+            "movie_delete", f"[{code}] {title}"
+        )
         from services.cache_service import CacheService
         await CacheService.invalidate_movie(code)
 
@@ -527,3 +537,22 @@ async def delete_movie_confirm(callback: CallbackQuery, state: FSMContext, sessi
 
     await state.clear()
     await callback.answer()
+
+
+# ============== AUDIT LOG ==============
+
+@router.message(F.text == "📋 Audit log")
+async def show_audit_log(message: Message, session: AsyncSession):
+    logs = await AdminLogRepository.get_recent(session, limit=15)
+
+    if not logs:
+        await message.answer("📋 <b>Audit log bo'sh.</b>", parse_mode="HTML")
+        return
+
+    text = "📋 <b>Oxirgi admin harakatlari:</b>\n\n"
+    for log in logs:
+        date_str = log.created_at.strftime("%d.%m %H:%M")
+        detail = f" — {log.detail[:50]}" if log.detail else ""
+        text += f"🕐 {date_str} | 👤 {log.admin_id}\n   {log.action}{detail}\n\n"
+
+    await message.answer(text, parse_mode="HTML")

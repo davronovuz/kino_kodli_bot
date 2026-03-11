@@ -5,6 +5,8 @@ from database.repositories.serial_repo import SerialRepository
 from database.repositories.extra_repo import (
     CollectionRepository, ReferralRepository, MovieRequestRepository,
     AdvertisementRepository, DailyMovieRepository, LeaderboardRepository,
+    WatchHistoryRepository, ReviewRepository, SerialProgressRepository,
+    AdminLogRepository,
 )
 
 __all__ = [
@@ -12,4 +14,6 @@ __all__ = [
     "SerialRepository", "CollectionRepository", "ReferralRepository",
     "MovieRequestRepository", "AdvertisementRepository",
     "DailyMovieRepository", "LeaderboardRepository",
+    "WatchHistoryRepository", "ReviewRepository",
+    "SerialProgressRepository", "AdminLogRepository",
 ]

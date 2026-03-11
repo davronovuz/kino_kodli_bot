@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from database.models import (
     Collection, collection_movies, Movie, Referral,
     MovieRequest, Advertisement, DailyMovie, User,
+    WatchHistory, Review, SerialProgress, AdminLog, Serial,
 )
 
 
@@ -269,3 +270,163 @@ class LeaderboardRepository:
             .limit(limit)
         )
         return result.all()
+
+
+class WatchHistoryRepository:
+
+    @staticmethod
+    async def add(session: AsyncSession, user_id: int, movie_id: int = None,
+                  serial_id: int = None, season: int = None, episode_num: int = None):
+        entry = WatchHistory(
+            user_id=user_id, movie_id=movie_id,
+            serial_id=serial_id, season=season, episode_num=episode_num,
+        )
+        session.add(entry)
+        await session.commit()
+
+    @staticmethod
+    async def get_history(session: AsyncSession, user_id: int, limit: int = 10, offset: int = 0) -> Tuple[list, int]:
+        from sqlalchemy.orm import selectinload
+        count_q = select(func.count(WatchHistory.id)).where(WatchHistory.user_id == user_id)
+        total = (await session.execute(count_q)).scalar() or 0
+
+        result = await session.execute(
+            select(WatchHistory)
+            .where(WatchHistory.user_id == user_id)
+            .order_by(desc(WatchHistory.watched_at))
+            .limit(limit).offset(offset)
+        )
+        return result.scalars().all(), total
+
+    @staticmethod
+    async def get_movie_history(session: AsyncSession, user_id: int, limit: int = 10) -> List[Movie]:
+        """Foydalanuvchi ko'rgan kinolar ro'yxati (unique, oxirgilari birinchi)."""
+        from sqlalchemy import distinct
+        subq = (
+            select(WatchHistory.movie_id, func.max(WatchHistory.watched_at).label("last"))
+            .where(WatchHistory.user_id == user_id, WatchHistory.movie_id.isnot(None))
+            .group_by(WatchHistory.movie_id)
+            .order_by(desc("last"))
+            .limit(limit)
+            .subquery()
+        )
+        result = await session.execute(
+            select(Movie).join(subq, Movie.id == subq.c.movie_id)
+            .where(Movie.is_active == True)
+            .order_by(desc(subq.c.last))
+        )
+        return result.scalars().all()
+
+
+class ReviewRepository:
+
+    @staticmethod
+    async def add_or_update(session: AsyncSession, user_id: int, movie_id: int, text: str) -> Review:
+        existing = await session.execute(
+            select(Review).where(Review.user_id == user_id, Review.movie_id == movie_id)
+        )
+        review = existing.scalar_one_or_none()
+        if review:
+            review.text = text
+            review.created_at = datetime.utcnow()
+        else:
+            review = Review(user_id=user_id, movie_id=movie_id, text=text)
+            session.add(review)
+        await session.commit()
+        return review
+
+    @staticmethod
+    async def get_for_movie(session: AsyncSession, movie_id: int, limit: int = 5) -> List[Review]:
+        result = await session.execute(
+            select(Review)
+            .where(Review.movie_id == movie_id)
+            .order_by(desc(Review.created_at))
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    @staticmethod
+    async def get_count(session: AsyncSession, movie_id: int) -> int:
+        result = await session.execute(
+            select(func.count(Review.id)).where(Review.movie_id == movie_id)
+        )
+        return result.scalar() or 0
+
+    @staticmethod
+    async def get_user_review(session: AsyncSession, user_id: int, movie_id: int) -> Optional[Review]:
+        result = await session.execute(
+            select(Review).where(Review.user_id == user_id, Review.movie_id == movie_id)
+        )
+        return result.scalar_one_or_none()
+
+
+class SerialProgressRepository:
+
+    @staticmethod
+    async def save(session: AsyncSession, user_id: int, serial_id: int, season: int, episode: int):
+        existing = await session.execute(
+            select(SerialProgress).where(
+                SerialProgress.user_id == user_id,
+                SerialProgress.serial_id == serial_id,
+            )
+        )
+        prog = existing.scalar_one_or_none()
+        if prog:
+            prog.last_season = season
+            prog.last_episode = episode
+            prog.updated_at = datetime.utcnow()
+        else:
+            prog = SerialProgress(
+                user_id=user_id, serial_id=serial_id,
+                last_season=season, last_episode=episode,
+            )
+            session.add(prog)
+        await session.commit()
+
+    @staticmethod
+    async def get(session: AsyncSession, user_id: int, serial_id: int) -> Optional[SerialProgress]:
+        result = await session.execute(
+            select(SerialProgress).where(
+                SerialProgress.user_id == user_id,
+                SerialProgress.serial_id == serial_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_all_for_user(session: AsyncSession, user_id: int) -> List:
+        result = await session.execute(
+            select(SerialProgress, Serial)
+            .join(Serial, Serial.id == SerialProgress.serial_id)
+            .where(SerialProgress.user_id == user_id)
+            .order_by(desc(SerialProgress.updated_at))
+        )
+        return result.all()
+
+
+class AdminLogRepository:
+
+    @staticmethod
+    async def log(session: AsyncSession, admin_id: int, action: str, detail: str = None):
+        entry = AdminLog(admin_id=admin_id, action=action, detail=detail)
+        session.add(entry)
+        await session.commit()
+
+    @staticmethod
+    async def get_recent(session: AsyncSession, limit: int = 20) -> List[AdminLog]:
+        result = await session.execute(
+            select(AdminLog)
+            .order_by(desc(AdminLog.created_at))
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    @staticmethod
+    async def get_by_admin(session: AsyncSession, admin_id: int, limit: int = 20) -> List[AdminLog]:
+        result = await session.execute(
+            select(AdminLog)
+            .where(AdminLog.admin_id == admin_id)
+            .order_by(desc(AdminLog.created_at))
+            .limit(limit)
+        )
+        return result.scalars().all()

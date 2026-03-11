@@ -18,6 +18,10 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text="⭐ Sevimlilar"),
+        KeyboardButton(text="📜 Tarix"),
+    )
+    builder.row(
         KeyboardButton(text="🎬 Janrlar"),
+        KeyboardButton(text="🔎 Filtr"),
     )
     return builder.as_markup(resize_keyboard=True)

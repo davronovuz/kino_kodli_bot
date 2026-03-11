@@ -151,6 +151,36 @@ async def main():
             logger.error(f"Daily report error: {e}")
 
     scheduler.add_job(daily_report, "cron", hour=9, minute=0)
+
+    async def db_backup():
+        """Har kuni tunda 3:00 da DB backup."""
+        import subprocess
+        from datetime import datetime as dt
+        try:
+            backup_file = f"/tmp/kino_bot_backup_{dt.utcnow().strftime('%Y%m%d')}.sql"
+            result = subprocess.run(
+                ["pg_dump", "-h", config.DB_HOST, "-U", config.DB_USER, "-d", config.DB_NAME,
+                 "-f", backup_file],
+                env={"PGPASSWORD": config.DB_PASS, "PATH": "/usr/bin:/usr/local/bin"},
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                logger.info(f"DB backup created: {backup_file}")
+                for admin_id in config.admins_list[:1]:
+                    try:
+                        await bot.send_document(
+                            admin_id,
+                            document=open(backup_file, "rb"),
+                            caption=f"💾 DB backup — {dt.utcnow().strftime('%d.%m.%Y')}",
+                        )
+                    except Exception:
+                        pass
+            else:
+                logger.error(f"DB backup failed: {result.stderr}")
+        except Exception as e:
+            logger.error(f"DB backup error: {e}")
+
+    scheduler.add_job(db_backup, "cron", hour=3, minute=0)
     scheduler.start()
 
     # Start polling

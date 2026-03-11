@@ -105,7 +105,59 @@ async def search_by_code(message: Message, session: AsyncSession):
     await send_movie(message, movie, session, message.from_user.id)
 
 
-# ============== TEXT SEARCH ==============
+# ============== RANDOM KINO ==============
+
+@router.message(F.text == "🎲 Random kino")
+async def random_movie(message: Message, session: AsyncSession):
+    movie = await MovieRepository.get_random(session)
+    if not movie:
+        await message.answer("📭 Kinolar bazasi bo'sh.")
+        return
+    await send_movie(message, movie, session, message.from_user.id)
+
+
+# ============== CATEGORIES ==============
+
+@router.message(F.text == "📂 Kategoriyalar")
+async def show_categories(message: Message):
+    await message.answer(
+        "📂 <b>Kategoriyani tanlang:</b>",
+        reply_markup=categories_kb(),
+        parse_mode="HTML",
+    )
+
+
+# ============== FAVORITES ==============
+
+@router.message(F.text == "⭐ Sevimlilar")
+async def show_favorites(message: Message, session: AsyncSession):
+    user = await UserRepository.get_by_telegram_id(session, message.from_user.id)
+    if not user:
+        await message.answer("Avval /start buyrug'ini yuboring.")
+        return
+
+    movies, total = await UserRepository.get_favorites(
+        session, user.id, limit=config.MOVIES_PER_PAGE
+    )
+
+    if not movies:
+        await message.answer(
+            "⭐ <b>Sevimlilar bo'sh.</b>\n\nKino ko'rib ⭐ bosing!",
+            parse_mode="HTML",
+        )
+        return
+
+    text = "⭐ <b>Sevimli kinolar:</b>\n\n"
+    for i, movie in enumerate(movies, 1):
+        text += format_movie_list_item(movie, i) + "\n"
+    text += "\n🔢 Kodini yuboring."
+
+    pages = calculate_pages(total, config.MOVIES_PER_PAGE)
+    kb = pagination_kb("favs", 1, pages) if pages > 1 else None
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+# ============== TEXT SEARCH (catch-all - OXIRIDA bo'lishi shart!) ==============
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def search_by_text(message: Message, session: AsyncSession, state: FSMContext):
@@ -262,27 +314,7 @@ async def view_movie_cb(callback: CallbackQuery, session: AsyncSession):
     await callback.answer()
 
 
-# ============== RANDOM KINO ==============
-
-@router.message(F.text == "🎲 Random kino")
-async def random_movie(message: Message, session: AsyncSession):
-    movie = await MovieRepository.get_random(session)
-    if not movie:
-        await message.answer("📭 Kinolar bazasi bo'sh.")
-        return
-    await send_movie(message, movie, session, message.from_user.id)
-
-
-# ============== CATEGORIES ==============
-
-@router.message(F.text == "📂 Kategoriyalar")
-async def show_categories(message: Message):
-    await message.answer(
-        "📂 <b>Kategoriyani tanlang:</b>",
-        reply_markup=categories_kb(),
-        parse_mode="HTML",
-    )
-
+# ============== CATEGORY CALLBACKS ==============
 
 @router.callback_query(F.data.startswith("cat:"))
 async def category_handler(callback: CallbackQuery, session: AsyncSession):
@@ -337,35 +369,7 @@ async def category_handler(callback: CallbackQuery, session: AsyncSession):
     await callback.answer()
 
 
-# ============== FAVORITES ==============
-
-@router.message(F.text == "⭐ Sevimlilar")
-async def show_favorites(message: Message, session: AsyncSession):
-    user = await UserRepository.get_by_telegram_id(session, message.from_user.id)
-    if not user:
-        await message.answer("Avval /start buyrug'ini yuboring.")
-        return
-
-    movies, total = await UserRepository.get_favorites(
-        session, user.id, limit=config.MOVIES_PER_PAGE
-    )
-
-    if not movies:
-        await message.answer(
-            "⭐ <b>Sevimlilar bo'sh.</b>\n\nKino ko'rib ⭐ bosing!",
-            parse_mode="HTML",
-        )
-        return
-
-    text = "⭐ <b>Sevimli kinolar:</b>\n\n"
-    for i, movie in enumerate(movies, 1):
-        text += format_movie_list_item(movie, i) + "\n"
-    text += "\n🔢 Kodini yuboring."
-
-    pages = calculate_pages(total, config.MOVIES_PER_PAGE)
-    kb = pagination_kb("favs", 1, pages) if pages > 1 else None
-    await message.answer(text, parse_mode="HTML", reply_markup=kb)
-
+# ============== FAVORITES CALLBACKS ==============
 
 @router.callback_query(F.data.startswith("fav:"))
 async def add_to_favorites(callback: CallbackQuery, session: AsyncSession):

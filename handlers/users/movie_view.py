@@ -190,6 +190,74 @@ async def show_favorites(message: Message, session: AsyncSession):
     await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
+# ============== WATCH HISTORY ==============
+
+@router.message(F.text == "📜 Tarix")
+async def show_watch_history(message: Message, session: AsyncSession):
+    movies = await WatchHistoryRepository.get_movie_history(
+        session, message.from_user.id, limit=10
+    )
+    if not movies:
+        await message.answer(
+            "📜 <b>Ko'rish tarixingiz bo'sh.</b>\n\nKino ko'ring, bu yerda saqlanadi!",
+            parse_mode="HTML",
+        )
+        return
+
+    text = "📜 <b>Oxirgi ko'rgan kinolaringiz:</b>\n\n"
+    for i, movie in enumerate(movies, 1):
+        text += format_movie_list_item(movie, i) + "\n"
+    text += "\n🔢 Kodini yuboring."
+    await message.answer(text, parse_mode="HTML")
+
+
+# ============== FILTER ==============
+
+@router.message(F.text == "🔎 Filtr")
+async def show_filter(message: Message):
+    await message.answer(
+        "🔎 <b>Filtr bo'yicha qidirish</b>\n\nQaysi filtr bo'yicha qidirasiz?",
+        reply_markup=filter_kb(),
+        parse_mode="HTML",
+    )
+
+
+# ============== REVIEW TEXT (FSM - catch-all dan oldin!) ==============
+
+@router.message(ReviewStates.waiting_text)
+async def write_review_text(message: Message, state: FSMContext, session: AsyncSession):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=main_menu_kb())
+        return
+
+    text = message.text.strip()
+    if len(text) < 5:
+        await message.answer("❌ Kamida 5 ta belgi yozing!")
+        return
+    if len(text) > 500:
+        await message.answer("❌ 500 belgidan oshmasligi kerak!")
+        return
+
+    data = await state.get_data()
+    movie_id = data.get("review_movie_id")
+    if not movie_id:
+        await state.clear()
+        return
+
+    await ReviewRepository.add_or_update(session, message.from_user.id, movie_id, text)
+    await state.clear()
+
+    movie = await MovieRepository.get_by_id(session, movie_id)
+    title = clean_title(movie.title) if movie and movie.title else "Kino"
+    await message.answer(
+        f"✅ <b>Sharh saqlandi!</b>\n\n"
+        f"🎬 {title}\n💬 {text[:100]}",
+        parse_mode="HTML",
+        reply_markup=main_menu_kb(),
+    )
+
+
 # ============== TEXT SEARCH (catch-all - OXIRIDA bo'lishi shart!) ==============
 
 @router.message(F.text & ~F.text.startswith("/"))
@@ -443,27 +511,6 @@ async def remove_from_favorites(callback: CallbackQuery, session: AsyncSession):
         pass
 
 
-# ============== WATCH HISTORY ==============
-
-@router.message(F.text == "📜 Tarix")
-async def show_watch_history(message: Message, session: AsyncSession):
-    movies = await WatchHistoryRepository.get_movie_history(
-        session, message.from_user.id, limit=10
-    )
-    if not movies:
-        await message.answer(
-            "📜 <b>Ko'rish tarixingiz bo'sh.</b>\n\nKino ko'ring, bu yerda saqlanadi!",
-            parse_mode="HTML",
-        )
-        return
-
-    text = "📜 <b>Oxirgi ko'rgan kinolaringiz:</b>\n\n"
-    for i, movie in enumerate(movies, 1):
-        text += format_movie_list_item(movie, i) + "\n"
-    text += "\n🔢 Kodini yuboring."
-    await message.answer(text, parse_mode="HTML")
-
-
 # ============== REVIEWS ==============
 
 @router.callback_query(F.data.startswith("reviews:"))
@@ -503,51 +550,6 @@ async def write_review_start(callback: CallbackQuery, state: FSMContext):
         parse_mode="HTML",
     )
     await callback.answer()
-
-
-@router.message(ReviewStates.waiting_text)
-async def write_review_text(message: Message, state: FSMContext, session: AsyncSession):
-    if message.text == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=main_menu_kb())
-        return
-
-    text = message.text.strip()
-    if len(text) < 5:
-        await message.answer("❌ Kamida 5 ta belgi yozing!")
-        return
-    if len(text) > 500:
-        await message.answer("❌ 500 belgidan oshmasligi kerak!")
-        return
-
-    data = await state.get_data()
-    movie_id = data.get("review_movie_id")
-    if not movie_id:
-        await state.clear()
-        return
-
-    await ReviewRepository.add_or_update(session, message.from_user.id, movie_id, text)
-    await state.clear()
-
-    movie = await MovieRepository.get_by_id(session, movie_id)
-    title = clean_title(movie.title) if movie and movie.title else "Kino"
-    await message.answer(
-        f"✅ <b>Sharh saqlandi!</b>\n\n"
-        f"🎬 {title}\n💬 {text[:100]}",
-        parse_mode="HTML",
-        reply_markup=main_menu_kb(),
-    )
-
-
-# ============== FILTER ==============
-
-@router.message(F.text == "🔎 Filtr")
-async def show_filter(message: Message):
-    await message.answer(
-        "🔎 <b>Filtr bo'yicha qidirish</b>\n\nQaysi filtr bo'yicha qidirasiz?",
-        reply_markup=filter_kb(),
-        parse_mode="HTML",
-    )
 
 
 @router.callback_query(F.data == "filter:back")

@@ -94,6 +94,8 @@ async def edit_movie_code(message: Message, state: FSMContext, session: AsyncSes
         InlineKeyboardButton(text="📝 Tavsif", callback_data="efield:description"),
         InlineKeyboardButton(text="🔢 Kod", callback_data="efield:code"),
     )
+    protect_text = "🔒 Himoya: ON" if movie.is_protected else "🔓 Himoya: OFF"
+    builder.row(InlineKeyboardButton(text=protect_text, callback_data="efield:toggle_protect"))
     builder.row(InlineKeyboardButton(text="❌ Bekor", callback_data="efield:cancel"))
 
     await message.answer(
@@ -103,12 +105,30 @@ async def edit_movie_code(message: Message, state: FSMContext, session: AsyncSes
 
 
 @router.callback_query(EditMovieStates.waiting_field, F.data.startswith("efield:"))
-async def edit_field_select(callback: CallbackQuery, state: FSMContext):
+async def edit_field_select(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
     field = callback.data.split(":")[1]
 
     if field == "cancel":
         await state.clear()
         await callback.message.edit_text("❌ Bekor qilindi.")
+        await callback.answer()
+        return
+
+    if field == "toggle_protect":
+        data = await state.get_data()
+        movie_id = data.get("edit_movie_id")
+        movie = await MovieRepository.get_by_id(session, movie_id)
+        if movie:
+            new_val = not (movie.is_protected or False)
+            await MovieRepository.update_movie(session, movie_id, is_protected=new_val)
+            status = "🔒 Himoyalangan" if new_val else "🔓 Oddiy"
+            await AdminLogRepository.log(
+                session, callback.from_user.id,
+                "movie_edit", f"[{data.get('edit_movie_code')}] is_protected={new_val}"
+            )
+            await callback.message.edit_text(f"✅ Kino himoyasi: {status}")
+            await callback.message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+        await state.clear()
         await callback.answer()
         return
 

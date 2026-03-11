@@ -49,6 +49,7 @@ class Movie(Base):
     caption = Column(Text, nullable=True)
     added_by = Column(BigInteger, nullable=True)  # admin telegram_id
     is_active = Column(Boolean, default=True)
+    is_protected = Column(Boolean, default=False)  # protect_content: forward/download taqiqlanadi
     view_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

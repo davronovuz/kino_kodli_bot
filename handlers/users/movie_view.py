@@ -59,6 +59,8 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
     if isinstance(target, CallbackQuery):
         msg_target = target.message
 
+    protect = getattr(movie, 'is_protected', False) or False
+
     try:
         if movie.poster_file_id:
             await msg_target.answer_photo(
@@ -66,6 +68,7 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=kb,
+                protect_content=protect,
             )
         elif movie.file_type == "video":
             await msg_target.answer_video(
@@ -73,6 +76,7 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=kb,
+                protect_content=protect,
             )
         else:
             await msg_target.answer_document(
@@ -80,6 +84,7 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=kb,
+                protect_content=protect,
             )
     except Exception as e:
         logger.error(f"Error sending movie {movie.code}: {e}")
@@ -89,6 +94,7 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
                 caption=caption,
                 parse_mode="HTML",
                 reply_markup=kb,
+                protect_content=protect,
             )
         except Exception as e2:
             logger.error(f"Error sending as document {movie.code}: {e2}")

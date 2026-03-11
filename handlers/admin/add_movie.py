@@ -1,6 +1,7 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, ContentType
+from aiogram.types import Message, CallbackQuery, ContentType, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from loguru import logger
@@ -300,13 +301,13 @@ async def receive_description(message: Message, state: FSMContext):
 async def receive_poster(message: Message, state: FSMContext):
     poster_file_id = message.photo[-1].file_id
     await state.update_data(poster_file_id=poster_file_id)
-    await show_confirmation(message, state)
+    await ask_protection(message, state)
 
 
 @router.message(AddMovieStates.waiting_poster, F.text == "⏭ O'tkazib yuborish")
 async def skip_poster(message: Message, state: FSMContext):
     await state.update_data(poster_file_id=None)
-    await show_confirmation(message, state)
+    await ask_protection(message, state)
 
 
 @router.message(AddMovieStates.waiting_poster)
@@ -314,9 +315,42 @@ async def invalid_poster(message: Message):
     await message.answer("❌ Rasm yuboring yoki «⏭ O'tkazib yuborish» bosing!")
 
 
+# Step 9.5: Content protection
+async def ask_protection(message: Message, state: FSMContext):
+    await state.set_state(AddMovieStates.waiting_protection)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🔓 Yo'q (oddiy)", callback_data="protect:no"),
+        InlineKeyboardButton(text="🔒 Ha (himoyalash)", callback_data="protect:yes"),
+    )
+    await message.answer(
+        "🔒 <b>Kontentni himoyalash</b>\n\n"
+        "Agar «Ha» tanlasangiz, foydalanuvchilar kinoni forward qila olmaydi "
+        "va yuklab ololmaydi.\n\n"
+        "Default: Yo'q (oddiy)",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML",
+    )
+
+
+@router.callback_query(AddMovieStates.waiting_protection, F.data.startswith("protect:"))
+async def receive_protection(callback: CallbackQuery, state: FSMContext):
+    choice = callback.data.split(":")[1]
+    is_protected = choice == "yes"
+    await state.update_data(is_protected=is_protected)
+
+    status = "🔒 Himoyalangan" if is_protected else "🔓 Oddiy"
+    await callback.message.edit_text(f"✅ {status}")
+    await show_confirmation(callback.message, state)
+    await callback.answer()
+
+
 async def show_confirmation(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.set_state(AddMovieStates.confirm)
+
+    is_protected = data.get('is_protected', False)
+    protect_str = "🔒 Himoyalangan" if is_protected else "🔓 Oddiy"
 
     text = (
         "📋 <b>Kinoni tasdiqlang:</b>\n\n"
@@ -328,6 +362,7 @@ async def show_confirmation(message: Message, state: FSMContext):
         f"📝 Tavsif: {(data.get('description') or 'Yoʼq')[:100]}\n"
         f"🖼 Poster: {'Bor ✅' if data.get('poster_file_id') else 'Yoʼq ❌'}\n"
         f"📁 Fayl turi: {data.get('file_type')}\n"
+        f"🔒 Himoya: {protect_str}\n"
     )
 
     await message.answer(text, reply_markup=confirm_kb("addmovie"), parse_mode="HTML")
@@ -364,6 +399,7 @@ async def confirm_add_movie(callback: CallbackQuery, state: FSMContext, session:
             poster_file_id=data.get("poster_file_id"),
             caption=data.get("caption"),
             added_by=callback.from_user.id,
+            is_protected=data.get("is_protected", False),
         )
 
         # Set genres

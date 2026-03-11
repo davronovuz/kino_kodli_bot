@@ -12,6 +12,7 @@ class AddMovieStates(StatesGroup):
     waiting_genre = State()
     waiting_description = State()
     waiting_poster = State()
+    waiting_protection = State()
     confirm = State()
 
 

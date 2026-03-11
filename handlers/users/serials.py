@@ -1,5 +1,6 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -8,6 +9,8 @@ from keyboards.reply import main_menu_kb
 from config import config
 
 router = Router()
+
+EPISODES_PER_PAGE = 10
 
 
 def format_serial_info(serial) -> str:
@@ -30,38 +33,64 @@ def format_serial_info(serial) -> str:
     return "\n".join(lines)
 
 
-def episodes_keyboard(serial, season: int = 1):
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
-
+def episodes_keyboard(serial, season: int = 1, page: int = 1):
     builder = InlineKeyboardBuilder()
 
-    episodes = [e for e in serial.episodes if e.season == season]
+    episodes = sorted(
+        [e for e in serial.episodes if e.season == season],
+        key=lambda x: x.episode_num
+    )
 
-    # Season tanlash
+    # Fasllar tugmasi
     seasons = sorted(set(e.season for e in serial.episodes))
     if len(seasons) > 1:
         season_btns = []
         for s in seasons:
             mark = "📍" if s == season else ""
             season_btns.append(InlineKeyboardButton(
-                text=f"{mark}{s}-fasl", callback_data=f"sseason:{serial.id}:{s}"
+                text=f"{mark}{s}-fasl", callback_data=f"sseason:{serial.id}:{s}:1"
             ))
-        builder.row(*season_btns[:4])
+        # Har qatorda 4 tadan
+        for i in range(0, len(season_btns), 4):
+            builder.row(*season_btns[i:i+4])
+
+    # Pagination
+    total_eps = len(episodes)
+    total_pages = max(1, (total_eps + EPISODES_PER_PAGE - 1) // EPISODES_PER_PAGE)
+    start = (page - 1) * EPISODES_PER_PAGE
+    end = start + EPISODES_PER_PAGE
+    page_episodes = episodes[start:end]
 
     # Qismlar
-    for ep in episodes:
+    for ep in page_episodes:
+        title_str = f" — {ep.title}" if ep.title else ""
         builder.row(InlineKeyboardButton(
-            text=f"▶️ {ep.episode_num}-qism{' — ' + ep.title if ep.title else ''}",
+            text=f"▶️ {ep.episode_num}-qism{title_str}",
             callback_data=f"sep:{serial.id}:{ep.season}:{ep.episode_num}"
         ))
+
+    # Sahifa tugmalari
+    if total_pages > 1:
+        nav_btns = []
+        if page > 1:
+            nav_btns.append(InlineKeyboardButton(
+                text="⬅️", callback_data=f"sseason:{serial.id}:{season}:{page - 1}"
+            ))
+        nav_btns.append(InlineKeyboardButton(
+            text=f"{page}/{total_pages}", callback_data="noop"
+        ))
+        if page < total_pages:
+            nav_btns.append(InlineKeyboardButton(
+                text="➡️", callback_data=f"sseason:{serial.id}:{season}:{page + 1}"
+            ))
+        builder.row(*nav_btns)
 
     return builder.as_markup()
 
 
 @router.message(F.text == "📺 Seriallar")
 async def show_serials(message: Message, session: AsyncSession):
-    serials, total = await SerialRepository.get_all(session, limit=10)
+    serials, total = await SerialRepository.get_all(session, limit=20)
     if not serials:
         await message.answer("📭 Seriallar hali yo'q.")
         return
@@ -81,6 +110,7 @@ async def change_season(callback: CallbackQuery, session: AsyncSession):
     parts = callback.data.split(":")
     serial_id = int(parts[1])
     season = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 1
 
     serial = await SerialRepository.get_by_id(session, serial_id)
     if not serial:
@@ -90,7 +120,7 @@ async def change_season(callback: CallbackQuery, session: AsyncSession):
     text = format_serial_info(serial)
     try:
         await callback.message.edit_text(
-            text, parse_mode="HTML", reply_markup=episodes_keyboard(serial, season)
+            text, parse_mode="HTML", reply_markup=episodes_keyboard(serial, season, page)
         )
     except Exception:
         pass
@@ -119,10 +149,7 @@ async def send_episode(callback: CallbackQuery, session: AsyncSession):
     )
     if ep.title:
         caption += f"\n📝 {ep.title}"
-
-    # Keyingi qism tugmasi
-    from aiogram.utils.keyboard import InlineKeyboardBuilder
-    from aiogram.types import InlineKeyboardButton
+    caption += f"\n\n🔢 Kod: <code>{serial.code}</code>"
 
     builder = InlineKeyboardBuilder()
 
@@ -138,13 +165,13 @@ async def send_episode(callback: CallbackQuery, session: AsyncSession):
         next_season_ep = await SerialRepository.get_episode(session, serial_id, season + 1, 1)
         if next_season_ep:
             builder.row(InlineKeyboardButton(
-                text=f"▶️ Keyingi fasl ({season + 1}-fasl)",
+                text=f"▶️ Keyingi fasl ({season + 1}-fasl, 1-qism)",
                 callback_data=f"sep:{serial_id}:{season + 1}:1"
             ))
 
     builder.row(InlineKeyboardButton(
         text="📋 Barcha qismlar",
-        callback_data=f"sseason:{serial_id}:{season}"
+        callback_data=f"sseason:{serial_id}:{season}:1"
     ))
 
     try:
@@ -160,6 +187,6 @@ async def send_episode(callback: CallbackQuery, session: AsyncSession):
             )
     except Exception as e:
         logger.error(f"Episode send error: {e}")
-        await callback.message.answer(f"❌ Qismni yuborishda xatolik.")
+        await callback.message.answer("❌ Qismni yuborishda xatolik.")
 
     await callback.answer()

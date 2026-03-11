@@ -7,6 +7,7 @@ from handlers.admin.broadcast import router as broadcast_router
 from handlers.admin.manage_channels import router as channels_router
 from handlers.admin.import_movies import router as import_router
 from handlers.admin.admin_extras import router as extras_router
+from handlers.admin.manage_serials import router as serials_router
 
 
 def get_admin_router() -> Router:
@@ -17,5 +18,6 @@ def get_admin_router() -> Router:
     router.include_router(broadcast_router)
     router.include_router(channels_router)
     router.include_router(import_router)
+    router.include_router(serials_router)
     router.include_router(extras_router)
     return router

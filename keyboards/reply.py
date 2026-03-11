@@ -14,10 +14,13 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text="🎲 Random kino"),
-        KeyboardButton(text="⭐ Sevimlilar"),
+        KeyboardButton(text="📺 Seriallar"),
     )
     builder.row(
+        KeyboardButton(text="⭐ Sevimlilar"),
         KeyboardButton(text="🎬 Janrlar"),
+    )
+    builder.row(
         KeyboardButton(text="📊 Mening statistikam"),
     )
     return builder.as_markup(resize_keyboard=True)

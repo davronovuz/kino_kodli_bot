@@ -43,3 +43,22 @@ class SearchStates(StatesGroup):
 
 class BanUserStates(StatesGroup):
     waiting_user_id = State()
+
+
+class AddSerialStates(StatesGroup):
+    waiting_title = State()
+    waiting_year = State()
+    waiting_quality = State()
+    waiting_language = State()
+    waiting_description = State()
+    waiting_poster = State()
+    confirm = State()
+
+
+class AddEpisodeStates(StatesGroup):
+    waiting_serial_code = State()
+    waiting_season = State()
+    waiting_episode_num = State()
+    waiting_title = State()
+    waiting_file = State()
+    confirm = State()

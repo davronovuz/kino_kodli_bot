@@ -21,10 +21,13 @@ def main_menu_kb() -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text="🎲 Random kino"),
-        KeyboardButton(text="⭐ Sevimlilar"),
+        KeyboardButton(text="📺 Seriallar"),
     )
     builder.row(
+        KeyboardButton(text="⭐ Sevimlilar"),
         KeyboardButton(text="🎬 Janrlar"),
+    )
+    builder.row(
         KeyboardButton(text="📊 Mening statistikam"),
     )
     return builder.as_markup(resize_keyboard=True)
@@ -38,7 +41,10 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
     builder.row(
         KeyboardButton(text="✏️ Kino tahrirlash"),
         KeyboardButton(text="🗑 Kino o'chirish"),
-        KeyboardButton(text="📥 Excel export"),
+    )
+    builder.row(
+        KeyboardButton(text="📺 Seriallar boshqaruvi"),
+        KeyboardButton(text="📥 Import kinolar"),
     )
     builder.row(
         KeyboardButton(text="📊 Statistika"),
@@ -50,10 +56,10 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
     )
     builder.row(
         KeyboardButton(text="📣 Reklama"),
-        KeyboardButton(text="📂 To'plamlar"),
+        KeyboardButton(text="📥 Excel export"),
     )
     builder.row(
-        KeyboardButton(text="📥 Import kinolar"),
+        KeyboardButton(text="📂 To'plamlar"),
         KeyboardButton(text="🔙 Asosiy menyu"),
     )
     return builder.as_markup(resize_keyboard=True)

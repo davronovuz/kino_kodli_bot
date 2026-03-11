@@ -170,7 +170,8 @@ async def search_by_text(message: Message, session: AsyncSession, state: FSMCont
         "⏭ O'tkazib yuborish", "🎬 Janrlar", "👥 Referral",
         "📩 Kino so'rash", "🎬 Bugungi kino", "🏆 Leaderboard",
         "✏️ Kino tahrirlash", "🗑 Kino o'chirish", "📥 Excel export",
-        "📣 Reklama", "📂 To'plamlar",
+        "📣 Reklama", "📂 To'plamlar", "📺 Seriallar",
+        "📺 Seriallar boshqaruvi",
     }
     if message.text in menu_buttons:
         return

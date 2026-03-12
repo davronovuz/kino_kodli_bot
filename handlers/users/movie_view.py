@@ -53,7 +53,13 @@ async def send_movie(target, movie, session: AsyncSession, user_telegram_id: int
             user_rating = ur
 
     caption = format_movie_caption(movie, avg_rating=avg_rating, rating_count=rating_count)
-    kb = movie_detail_kb_v2(movie.id, is_fav, avg_rating, user_rating)
+    from utils.helpers import clean_title
+    title_clean = clean_title(movie.title) if movie.title else ""
+    kb = movie_detail_kb_v2(
+        movie.id, is_fav, avg_rating, user_rating,
+        is_protected=getattr(movie, 'is_protected', False) or False,
+        movie_title=title_clean,
+    )
 
     msg_target = target
     if isinstance(target, CallbackQuery):
@@ -308,10 +314,18 @@ async def search_by_text(message: Message, session: AsyncSession, state: FSMCont
             text += "\n🔢 Kodini yuboring."
             await message.answer(text, parse_mode="HTML")
         else:
+            from aiogram.utils.keyboard import InlineKeyboardBuilder
+            from aiogram.types import InlineKeyboardButton as IKB
+            req_builder = InlineKeyboardBuilder()
+            req_builder.row(IKB(
+                text="📩 Kino so'rash", callback_data=f"request_movie:{query[:50]}"
+            ))
             await message.answer(
                 f"🔍 <b>«{query}»</b> bo'yicha hech narsa topilmadi.\n\n"
-                f"💡 Boshqa nom yoki kodni kiriting.",
+                f"💡 Boshqa nom yoki kodni kiriting.\n"
+                f"📩 Yoki pastdagi tugma orqali admin'dan so'rang!",
                 parse_mode="HTML",
+                reply_markup=req_builder.as_markup(),
             )
         return
 
@@ -693,29 +707,154 @@ async def filter_by_lang(callback: CallbackQuery, session: AsyncSession):
 
 # ============== INLINE SEARCH ==============
 
+# ============== COLLECTIONS (TO'PLAMLAR) ==============
+
+@router.callback_query(F.data == "cat:collections")
+async def show_collections(callback: CallbackQuery, session: AsyncSession):
+    from database.repositories import CollectionRepository
+    cols = await CollectionRepository.get_all(session)
+
+    if not cols:
+        await callback.answer("📂 Hozircha to'plamlar yo'q")
+        return
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton as IKB
+
+    builder = InlineKeyboardBuilder()
+    for col in cols:
+        movies = await CollectionRepository.get_movies(session, col.id)
+        builder.row(IKB(
+            text=f"{col.emoji} {col.name} ({len(movies)} ta)",
+            callback_data=f"col:{col.id}"
+        ))
+    builder.row(IKB(text="🔙 Orqaga", callback_data="cat:back_to_cats"))
+
+    try:
+        await callback.message.edit_text(
+            "📂 <b>To'plamlar:</b>", parse_mode="HTML",
+            reply_markup=builder.as_markup(),
+        )
+    except Exception:
+        await callback.message.answer(
+            "📂 <b>To'plamlar:</b>", parse_mode="HTML",
+            reply_markup=builder.as_markup(),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cat:back_to_cats")
+async def back_to_cats(callback: CallbackQuery):
+    from keyboards.inline import categories_kb
+    try:
+        await callback.message.edit_text(
+            "📂 <b>Kategoriyani tanlang:</b>",
+            reply_markup=categories_kb(),
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("col:"))
+async def collection_movies(callback: CallbackQuery, session: AsyncSession):
+    col_id = int(callback.data.split(":")[1])
+    from database.repositories import CollectionRepository
+    col = await CollectionRepository.get_by_id(session, col_id)
+    if not col:
+        await callback.answer("To'plam topilmadi")
+        return
+
+    movies = await CollectionRepository.get_movies(session, col_id)
+    if not movies:
+        await callback.answer("Bu to'plamda kinolar yo'q")
+        return
+
+    text = f"{col.emoji} <b>{col.name}:</b>\n\n"
+    for i, movie in enumerate(movies, 1):
+        text += format_movie_list_item(movie, i) + "\n"
+    text += "\n🔢 Kodini yuboring."
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+
+# ============== KINO SO'RASH (inline) ==============
+
+@router.callback_query(F.data.startswith("request_movie:"))
+async def request_movie_inline(callback: CallbackQuery, session: AsyncSession):
+    query = callback.data.split(":", 1)[1]
+    from database.repositories import MovieRequestRepository
+    req = await MovieRequestRepository.create(session, callback.from_user.id, query)
+
+    # Adminga xabar
+    for admin_id in config.admins_list[:3]:
+        try:
+            await callback.bot.send_message(
+                admin_id,
+                f"📩 <b>Yangi kino so'rovi!</b>\n\n"
+                f"👤 {callback.from_user.full_name} (@{callback.from_user.username})\n"
+                f"🎬 <b>{query}</b>\n\n"
+                f"Javob: /reply_{req.id} matn",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+    await callback.answer("✅ So'rovingiz admin'ga yuborildi!", show_alert=True)
+
+
+# ============== INLINE SEARCH ==============
+
 @router.inline_query()
 async def inline_search(query: InlineQuery, session: AsyncSession):
     text = query.query.strip()
-    if len(text) < 2:
+    if len(text) < 1:
         return
 
-    movies, _ = await MovieRepository.search_by_title(session, text, limit=10)
     results = []
 
-    for movie in movies:
-        year_str = f" ({movie.year})" if movie.year else ""
-        quality_str = f" [{movie.quality}]" if movie.quality else ""
+    # Kod bilan qidirish
+    if text.isdigit():
+        movie = await MovieRepository.get_by_code(session, int(text))
+        if movie:
+            year_str = f" ({movie.year})" if movie.year else ""
+            quality_str = f" [{movie.quality}]" if movie.quality else ""
+            results.append(InlineQueryResultArticle(
+                id=str(movie.id),
+                title=f"🎬 {clean_title(movie.title)}{year_str}{quality_str}",
+                description=f"Kod: {movie.code} | Ko'rishlar: {movie.view_count}",
+                input_message_content=InputTextMessageContent(
+                    message_text=f"{movie.code}",
+                ),
+            ))
 
-        results.append(InlineQueryResultArticle(
-            id=str(movie.id),
-            title=f"🎬 {movie.title}{year_str}{quality_str}",
-            description=f"Kod: {movie.code} | Ko'rishlar: {movie.view_count}",
-            input_message_content=InputTextMessageContent(
-                message_text=f"{movie.code}",
-            ),
-        ))
+    # Nom bilan qidirish
+    if len(text) >= 2:
+        movies, _ = await MovieRepository.search_by_title(session, text, limit=10)
+        existing_ids = {r.id for r in results}
+        for movie in movies:
+            if str(movie.id) in existing_ids:
+                continue
+            year_str = f" ({movie.year})" if movie.year else ""
+            quality_str = f" [{movie.quality}]" if movie.quality else ""
+            results.append(InlineQueryResultArticle(
+                id=str(movie.id),
+                title=f"🎬 {clean_title(movie.title)}{year_str}{quality_str}",
+                description=f"Kod: {movie.code} | Ko'rishlar: {movie.view_count}",
+                input_message_content=InputTextMessageContent(
+                    message_text=f"{movie.code}",
+                ),
+            ))
 
-    await query.answer(results, cache_time=10, is_personal=True)
+    if results:
+        await query.answer(results, cache_time=10, is_personal=True)
+    else:
+        await query.answer([], cache_time=5, is_personal=True)
 
 
 @router.callback_query(F.data == "noop")

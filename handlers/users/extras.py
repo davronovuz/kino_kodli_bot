@@ -23,35 +23,65 @@ router = Router()
 async def start_with_referral(message: Message, session: AsyncSession, state: FSMContext):
     await state.clear()
     args = message.text.split()
-    if len(args) > 1 and args[1].startswith("ref"):
-        try:
-            referrer_id = int(args[1].replace("ref", ""))
-        except ValueError:
-            return
 
-        if referrer_id != message.from_user.id:
-            user, is_new = await UserRepository.get_or_create(
+    if len(args) > 1:
+        param = args[1]
+
+        # Deep link: kino kodi (/start 123 yoki /start movie_123)
+        movie_code = None
+        if param.isdigit():
+            movie_code = int(param)
+        elif param.startswith("movie_"):
+            try:
+                movie_code = int(param.replace("movie_", ""))
+            except ValueError:
+                pass
+
+        if movie_code:
+            # Userni saqlash
+            await UserRepository.get_or_create(
                 session,
                 telegram_id=message.from_user.id,
                 username=message.from_user.username,
                 full_name=message.from_user.full_name,
             )
+            movie = await MovieRepository.get_by_code(session, movie_code)
+            if movie:
+                from handlers.users.movie_view import send_movie
+                await message.answer("🎬 Sizga kino ulashildi!", reply_markup=main_menu_kb())
+                await send_movie(message, movie, session, message.from_user.id)
+                return
 
-            if is_new:
-                already = await ReferralRepository.is_referred(session, message.from_user.id)
-                if not already:
-                    await ReferralRepository.create(session, referrer_id, message.from_user.id)
-                    count = await ReferralRepository.get_count(session, referrer_id)
+        # Referral
+        if param.startswith("ref"):
+            try:
+                referrer_id = int(param.replace("ref", ""))
+            except ValueError:
+                referrer_id = None
 
-                    try:
-                        await message.bot.send_message(
-                            referrer_id,
-                            f"🎉 Sizning havolangiz orqali yangi foydalanuvchi qo'shildi!\n"
-                            f"👥 Jami taklif qilganlaringiz: <b>{count}</b>",
-                            parse_mode="HTML",
-                        )
-                    except Exception:
-                        pass
+            if referrer_id and referrer_id != message.from_user.id:
+                user, is_new = await UserRepository.get_or_create(
+                    session,
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username,
+                    full_name=message.from_user.full_name,
+                )
+
+                if is_new:
+                    already = await ReferralRepository.is_referred(session, message.from_user.id)
+                    if not already:
+                        await ReferralRepository.create(session, referrer_id, message.from_user.id)
+                        count = await ReferralRepository.get_count(session, referrer_id)
+
+                        try:
+                            await message.bot.send_message(
+                                referrer_id,
+                                f"🎉 Sizning havolangiz orqali yangi foydalanuvchi qo'shildi!\n"
+                                f"👥 Jami taklif qilganlaringiz: <b>{count}</b>",
+                                parse_mode="HTML",
+                            )
+                        except Exception:
+                            pass
 
     # Oddiy start davom etadi
     from handlers.users.start import cmd_start
@@ -75,11 +105,12 @@ async def show_referral(message: Message, session: AsyncSession):
 
 # ============== KINO SO'RASH ==============
 
+from states.admin_states import RequestMovieStates
+
+
 @router.message(F.text == "📩 Kino so'rash")
 async def request_movie_start(message: Message, state: FSMContext):
-    from states.admin_states import SearchStates
-    await state.set_state(SearchStates.waiting_query)
-    await state.update_data(is_request=True)
+    await state.set_state(RequestMovieStates.waiting_text)
     await message.answer(
         "📩 <b>Kino so'rash</b>\n\n"
         "Qaysi kinoni qo'shishimizni xohlaysiz?\n"
@@ -88,21 +119,17 @@ async def request_movie_start(message: Message, state: FSMContext):
     )
 
 
-@router.message(F.text == "📩 Kino so'rash")
+@router.message(RequestMovieStates.waiting_text)
 async def request_movie_text(message: Message, session: AsyncSession, state: FSMContext):
-    data = await state.get_data()
-    if not data.get("is_request"):
-        return
-
-    text = message.text.strip()
-    if len(text) < 2:
+    text = message.text
+    if not text or len(text.strip()) < 2:
         await message.answer("Kamida 2 ta belgi yozing.")
         return
 
+    text = text.strip()
     req = await MovieRequestRepository.create(session, message.from_user.id, text)
     await state.clear()
 
-    # Adminga xabar
     for admin_id in config.admins_list[:3]:
         try:
             await message.bot.send_message(
@@ -110,15 +137,14 @@ async def request_movie_text(message: Message, session: AsyncSession, state: FSM
                 f"📩 <b>Yangi kino so'rovi!</b>\n\n"
                 f"👤 {message.from_user.full_name} (@{message.from_user.username})\n"
                 f"🎬 <b>{text}</b>\n\n"
-                f"Javob berish: /reply_{req.id} matn",
+                f"Javob: /reply_{req.id} matn",
                 parse_mode="HTML",
             )
         except Exception:
             pass
 
     await message.answer(
-        "✅ So'rovingiz qabul qilindi!\n"
-        "Admin tez orada javob beradi.",
+        "✅ So'rovingiz qabul qilindi!\nAdmin tez orada javob beradi.",
         reply_markup=main_menu_kb(),
     )
 

@@ -419,6 +419,33 @@ async def confirm_add_movie(callback: CallbackQuery, state: FSMContext, session:
         await callback.message.answer("Admin menyu:", reply_markup=admin_menu_kb())
         logger.info(f"Movie added: {movie.code} - {movie.title} by admin {callback.from_user.id}")
 
+        # Kanalga yangi kino haqida xabar
+        try:
+            from database.models import Channel
+            ch_result = await session.execute(
+                select(Channel).where(Channel.is_active == True, Channel.is_mandatory == True)
+            )
+            channels = ch_result.scalars().all()
+            year_str = f" ({movie.year})" if movie.year else ""
+            quality_str = f" | {movie.quality}" if movie.quality else ""
+            lang_str = f" | {movie.language}" if movie.language else ""
+            notify_text = (
+                f"🆕 <b>Yangi kino qo'shildi!</b>\n\n"
+                f"🎬 <b>{movie.title}</b>{year_str}\n"
+                f"📺{quality_str}{lang_str}\n\n"
+                f"🔢 Kod: <code>{movie.code}</code>\n"
+                f"▶️ Botda ko'rish uchun kodini yuboring!"
+            )
+            for ch in channels:
+                try:
+                    await callback.bot.send_message(
+                        ch.channel_id, notify_text, parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Channel notify error: {e}")
+
     except Exception as e:
         logger.error(f"Error adding movie: {e}")
         await callback.message.edit_text(

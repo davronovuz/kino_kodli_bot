@@ -46,6 +46,11 @@ class BanUserStates(StatesGroup):
     waiting_user_id = State()
 
 
+class EditSerialStates(StatesGroup):
+    waiting_field = State()
+    waiting_value = State()
+
+
 class AddSerialStates(StatesGroup):
     waiting_title = State()
     waiting_year = State()
@@ -66,4 +71,8 @@ class AddEpisodeStates(StatesGroup):
 
 
 class ReviewStates(StatesGroup):
+    waiting_text = State()
+
+
+class RequestMovieStates(StatesGroup):
     waiting_text = State()

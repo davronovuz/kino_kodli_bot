@@ -6,7 +6,7 @@ from loguru import logger
 
 from filters.admin_filter import IsAdmin
 from database.repositories import SerialRepository
-from states.admin_states import AddSerialStates, AddEpisodeStates
+from states.admin_states import AddSerialStates, AddEpisodeStates, EditSerialStates
 from keyboards.inline import (
     cancel_kb, skip_kb, quality_kb, language_kb, admin_menu_kb,
 )
@@ -45,6 +45,7 @@ def serial_detail_kb(serial_id: int):
 
     builder = InlineKeyboardBuilder()
     builder.row(
+        InlineKeyboardButton(text="✏️ Tahrirlash", callback_data=f"seradm_edit:{serial_id}"),
         InlineKeyboardButton(text="📥 Qism qo'shish", callback_data=f"seradm_addep:{serial_id}"),
     )
     builder.row(
@@ -717,6 +718,101 @@ async def serial_episodes_list(callback: CallbackQuery, session: AsyncSession):
     except Exception:
         await callback.message.answer(text, parse_mode="HTML", reply_markup=builder.as_markup())
     await callback.answer()
+
+
+# ============== SERIAL TAHRIRLASH ==============
+
+@router.callback_query(F.data.startswith("seradm_edit:"))
+async def edit_serial_menu(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+    serial_id = int(callback.data.split(":")[1])
+    serial = await SerialRepository.get_by_id(session, serial_id)
+    if not serial:
+        await callback.answer("Serial topilmadi!")
+        return
+
+    await state.update_data(edit_serial_id=serial_id)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="📝 Nom", callback_data="sedit:title"),
+        InlineKeyboardButton(text="📅 Yil", callback_data="sedit:year"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="📺 Sifat", callback_data="sedit:quality"),
+        InlineKeyboardButton(text="🌐 Til", callback_data="sedit:language"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="📝 Tavsif", callback_data="sedit:description"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"seradm_view:{serial_id}"),
+    )
+
+    await callback.message.edit_text(
+        f"✏️ <b>[{serial.code}] {serial.title}</b>\n\nNimani o'zgartirmoqchisiz?",
+        parse_mode="HTML", reply_markup=builder.as_markup(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sedit:"))
+async def edit_serial_field(callback: CallbackQuery, state: FSMContext):
+    field = callback.data.split(":")[1]
+    data = await state.get_data()
+    serial_id = data.get("edit_serial_id")
+    if not serial_id:
+        await callback.answer("Xatolik!")
+        return
+
+    field_names = {
+        "title": "📝 Yangi nomni kiriting:",
+        "year": "📅 Yangi yilni kiriting:",
+        "quality": "📺 Yangi sifatni kiriting (720p, 1080p...):",
+        "language": "🌐 Yangi tilni kiriting:",
+        "description": "📝 Yangi tavsifni kiriting:",
+    }
+
+    await state.update_data(edit_serial_field=field)
+    await state.set_state(EditSerialStates.waiting_value)
+    await callback.message.edit_text(field_names.get(field, "Yangi qiymatni kiriting:"))
+    await callback.answer()
+
+
+@router.message(EditSerialStates.waiting_value)
+async def edit_serial_value(message: Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_data()
+    serial_id = data.get("edit_serial_id")
+    field = data.get("edit_serial_field")
+
+    if not serial_id or not field:
+        await state.clear()
+        return
+
+    value = message.text.strip()
+
+    try:
+        if field == "year":
+            value = int(value)
+
+        await SerialRepository.update_serial(session, serial_id, **{field: value})
+
+        from database.repositories import AdminLogRepository
+        await AdminLogRepository.log(
+            session, message.from_user.id,
+            "serial_edit", f"Serial #{serial_id} {field}={value}"
+        )
+
+        await message.answer(
+            f"✅ Yangilandi!\n\n{field}: <b>{value}</b>",
+            parse_mode="HTML", reply_markup=admin_menu_kb(),
+        )
+    except Exception as e:
+        await message.answer(f"❌ Xato: {str(e)[:200]}")
+
+    await state.clear()
 
 
 # ============== SERIAL O'CHIRISH ==============

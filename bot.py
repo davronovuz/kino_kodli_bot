@@ -181,6 +181,48 @@ async def main():
             logger.error(f"DB backup error: {e}")
 
     scheduler.add_job(db_backup, "cron", hour=3, minute=0)
+
+    async def weekly_top_collection():
+        """Har dushanba kuni haftalik top 10 to'plam yangilanadi."""
+        try:
+            async with async_session() as session:
+                from database.repositories import MovieRepository, CollectionRepository
+                from database.models import Collection
+                from sqlalchemy import select
+
+                # "Haftalik Top 10" to'plamini topish yoki yaratish
+                result = await session.execute(
+                    select(Collection).where(Collection.name == "Haftalik Top 10")
+                )
+                col = result.scalar_one_or_none()
+                if not col:
+                    col = await CollectionRepository.create(
+                        session, name="Haftalik Top 10", emoji="🔥"
+                    )
+
+                # Eski kinolarni o'chirish
+                from database.models import collection_movies
+                from sqlalchemy import delete
+                await session.execute(
+                    delete(collection_movies).where(
+                        collection_movies.c.collection_id == col.id
+                    )
+                )
+                await session.commit()
+
+                # Top 10 ni qo'shish
+                movies = await MovieRepository.get_popular(session, limit=10)
+                for i, movie in enumerate(movies):
+                    try:
+                        await CollectionRepository.add_movie(session, col.id, movie.id, position=i)
+                    except Exception:
+                        pass
+
+                logger.info(f"Weekly top collection updated: {len(movies)} movies")
+        except Exception as e:
+            logger.error(f"Weekly top error: {e}")
+
+    scheduler.add_job(weekly_top_collection, "cron", day_of_week="mon", hour=9, minute=30)
     scheduler.start()
 
     # Start polling

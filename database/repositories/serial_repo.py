@@ -106,6 +106,14 @@ class SerialRepository:
         await session.commit()
 
     @staticmethod
+    async def update_serial(session: AsyncSession, serial_id: int, **kwargs) -> Optional[Serial]:
+        await session.execute(
+            update(Serial).where(Serial.id == serial_id).values(**kwargs)
+        )
+        await session.commit()
+        return await SerialRepository.get_by_id(session, serial_id)
+
+    @staticmethod
     async def delete_serial(session: AsyncSession, serial_id: int) -> bool:
         result = await session.execute(delete(Serial).where(Serial.id == serial_id))
         await session.commit()

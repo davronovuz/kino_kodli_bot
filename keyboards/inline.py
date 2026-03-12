@@ -263,8 +263,15 @@ def import_method_kb() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def movie_detail_kb_v2(movie_id: int, is_favorite: bool = False, avg_rating: float = 0, user_rating: int = 0) -> InlineKeyboardMarkup:
-    """Enhanced movie keyboard with rating and similar."""
+def movie_detail_kb_v2(
+    movie_id: int,
+    is_favorite: bool = False,
+    avg_rating: float = 0,
+    user_rating: int = 0,
+    is_protected: bool = False,
+    movie_title: str = "",
+) -> InlineKeyboardMarkup:
+    """Enhanced movie keyboard with rating, similar, and share."""
     builder = InlineKeyboardBuilder()
 
     # Rating tugmalari
@@ -281,10 +288,20 @@ def movie_detail_kb_v2(movie_id: int, is_favorite: bool = False, avg_rating: flo
             text=f"📊 Reyting: {avg_rating}/5", callback_data="noop"
         ))
 
-    # Favorite
+    # Favorite + Share
     fav_text = "❌ Sevimlilardan" if is_favorite else "⭐ Sevimlilarga"
     fav_cb = f"unfav:{movie_id}" if is_favorite else f"fav:{movie_id}"
-    builder.row(InlineKeyboardButton(text=fav_text, callback_data=fav_cb))
+
+    if not is_protected:
+        builder.row(
+            InlineKeyboardButton(text=fav_text, callback_data=fav_cb),
+            InlineKeyboardButton(
+                text="📤 Ulashish",
+                switch_inline_query=movie_title[:30] if movie_title else "",
+            ),
+        )
+    else:
+        builder.row(InlineKeyboardButton(text=fav_text, callback_data=fav_cb))
 
     # Review + Similar
     builder.row(
@@ -292,7 +309,7 @@ def movie_detail_kb_v2(movie_id: int, is_favorite: bool = False, avg_rating: flo
         InlineKeyboardButton(text="✍️ Sharh yozish", callback_data=f"wreview:{movie_id}"),
     )
     builder.row(InlineKeyboardButton(
-        text="🎬 Shunga o'xshash kinolar", callback_data=f"similar:{movie_id}"
+        text="🎬 O'xshash kinolar", callback_data=f"similar:{movie_id}"
     ))
 
     return builder.as_markup()
@@ -373,4 +390,7 @@ def categories_kb() -> InlineKeyboardMarkup:
     for text, cb in cats:
         builder.button(text=text, callback_data=cb)
     builder.adjust(2)
+    builder.row(InlineKeyboardButton(
+        text="📂 To'plamlar", callback_data="cat:collections"
+    ))
     return builder.as_markup()

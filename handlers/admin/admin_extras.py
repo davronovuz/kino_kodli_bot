@@ -582,6 +582,11 @@ async def show_audit_log(message: Message, session: AsyncSession):
 
 class ChannelPostStates(StatesGroup):
     waiting_movie_code = State()
+    waiting_approval = State()
+
+
+# Postlar preview cache (admin_id -> list of post_data)
+_pending_posts: dict = {}
 
 
 @router.message(F.text == "📢 Kanal post")
@@ -611,7 +616,7 @@ async def channel_post_menu(message: Message):
 
 
 @router.callback_query(F.data == "chpost:random")
-async def channel_post_random(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+async def channel_post_random(callback: CallbackQuery, state: FSMContext, session: AsyncSession, bot: Bot):
     await callback.message.edit_text("⏳ Random kinolar tanlanmoqda va post tayyorlanmoqda...")
     await callback.answer()
 
@@ -623,20 +628,125 @@ async def channel_post_random(callback: CallbackQuery, session: AsyncSession, bo
             await callback.message.edit_text("❌ Bazada faol kinolar topilmadi!")
             return
 
-        success_count = 0
-        for movie in movies:
-            result = await ChannelPostService.post_movie_to_channel(bot, movie, session)
-            if result:
-                success_count += 1
+        # Postlarni tayyorlash
+        admin_id = callback.from_user.id
+        _pending_posts[admin_id] = []
 
-        movie_list = "\n".join(f"  🎬 [{m.code}] {m.title}" for m in movies)
-        await callback.message.edit_text(
-            f"✅ {success_count}/{len(movies)} ta post yuborildi!\n\n{movie_list}",
-            parse_mode="HTML",
+        for movie in movies:
+            await callback.message.answer(f"⏳ <b>{movie.title}</b> uchun post tayyorlanmoqda...", parse_mode="HTML")
+            post_data = await ChannelPostService.prepare_post(bot, movie)
+            _pending_posts[admin_id].append(post_data)
+
+            # Adminga preview ko'rsatish
+            await callback.message.answer("👇 <b>Preview:</b>", parse_mode="HTML")
+            await ChannelPostService.send_preview(bot, admin_id, post_data)
+
+        # Tasdiqlash tugmalari
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(text=f"✅ Tasdiqlash ({len(movies)} ta)", callback_data="chpost:approve"),
+            InlineKeyboardButton(text="🔄 Qayta yaratish", callback_data="chpost:regenerate"),
         )
-        await callback.message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+        builder.row(
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data="chpost:reject"),
+        )
+
+        await callback.message.answer(
+            f"☝️ <b>{len(movies)} ta post tayyor.</b>\n\nTasdiqlaysizmi?",
+            parse_mode="HTML",
+            reply_markup=builder.as_markup(),
+        )
+
     except Exception as e:
-        await callback.message.edit_text(f"❌ Xato: {str(e)[:200]}")
+        await callback.message.answer(f"❌ Xato: {str(e)[:200]}")
+
+
+@router.callback_query(F.data == "chpost:approve")
+async def channel_post_approve(callback: CallbackQuery, bot: Bot):
+    admin_id = callback.from_user.id
+    posts = _pending_posts.get(admin_id, [])
+
+    if not posts:
+        await callback.message.edit_text("❌ Tasdiqlash uchun postlar topilmadi!")
+        await callback.answer()
+        return
+
+    await callback.message.edit_text("⏳ Kanalga yuborilmoqda...")
+    await callback.answer()
+
+    from services.channel_post_service import ChannelPostService
+
+    success = 0
+    for post_data in posts:
+        result = await ChannelPostService.send_to_channel(bot, post_data)
+        if result:
+            success += 1
+
+    # Tozalash
+    _pending_posts.pop(admin_id, None)
+
+    movie_list = "\n".join(f"  🎬 [{p['movie'].code}] {p['movie'].title}" for p in posts)
+    await callback.message.edit_text(
+        f"✅ <b>{success}/{len(posts)}</b> ta post kanalga yuborildi!\n\n{movie_list}",
+        parse_mode="HTML",
+    )
+    await callback.message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+
+
+@router.callback_query(F.data == "chpost:regenerate")
+async def channel_post_regenerate(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    admin_id = callback.from_user.id
+    old_posts = _pending_posts.get(admin_id, [])
+
+    if not old_posts:
+        await callback.message.edit_text("❌ Qayta yaratish uchun postlar topilmadi!")
+        await callback.answer()
+        return
+
+    await callback.message.edit_text("🔄 Postlar qayta yaratilmoqda...")
+    await callback.answer()
+
+    from services.channel_post_service import ChannelPostService
+
+    _pending_posts[admin_id] = []
+    for old_post in old_posts:
+        movie = old_post["movie"]
+        await callback.message.answer(f"⏳ <b>{movie.title}</b> qayta tayyorlanmoqda...", parse_mode="HTML")
+        post_data = await ChannelPostService.prepare_post(bot, movie)
+        _pending_posts[admin_id].append(post_data)
+
+        await callback.message.answer("👇 <b>Yangi preview:</b>", parse_mode="HTML")
+        await ChannelPostService.send_preview(bot, admin_id, post_data)
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text=f"✅ Tasdiqlash ({len(old_posts)} ta)", callback_data="chpost:approve"),
+        InlineKeyboardButton(text="🔄 Qayta yaratish", callback_data="chpost:regenerate"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data="chpost:reject"),
+    )
+
+    await callback.message.answer(
+        f"☝️ <b>{len(old_posts)} ta post qayta yaratildi.</b>\n\nTasdiqlaysizmi?",
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "chpost:reject")
+async def channel_post_reject(callback: CallbackQuery):
+    admin_id = callback.from_user.id
+    _pending_posts.pop(admin_id, None)
+    await callback.message.edit_text("❌ Postlar bekor qilindi.")
+    await callback.answer()
+    await callback.message.answer("Admin menyu:", reply_markup=admin_menu_kb())
 
 
 @router.callback_query(F.data == "chpost:bycode")
@@ -677,16 +787,30 @@ async def channel_post_code_entered(message: Message, state: FSMContext, session
 
     try:
         from services.channel_post_service import ChannelPostService
-        result = await ChannelPostService.post_movie_to_channel(bot, movie, session)
+        post_data = await ChannelPostService.prepare_post(bot, movie)
 
-        if result:
-            await progress.edit_text(
-                f"✅ Post yuborildi!\n\n🎬 <b>[{code}] {movie.title}</b>",
-                parse_mode="HTML",
-            )
-        else:
-            await progress.edit_text("❌ Post yuborishda xatolik!")
+        admin_id = message.from_user.id
+        _pending_posts[admin_id] = [post_data]
 
-        await message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+        await progress.edit_text("👇 <b>Preview:</b>", parse_mode="HTML")
+        await ChannelPostService.send_preview(bot, admin_id, post_data)
+
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="chpost:approve"),
+            InlineKeyboardButton(text="🔄 Qayta yaratish", callback_data="chpost:regenerate"),
+        )
+        builder.row(
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data="chpost:reject"),
+        )
+
+        await message.answer(
+            "☝️ <b>Post tayyor.</b> Kanalga yuborilsinmi?",
+            parse_mode="HTML",
+            reply_markup=builder.as_markup(),
+        )
     except Exception as e:
         await progress.edit_text(f"❌ Xato: {str(e)[:200]}")

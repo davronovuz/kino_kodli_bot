@@ -1,3 +1,4 @@
+import re
 import random
 import aiohttp
 from loguru import logger
@@ -27,11 +28,20 @@ class ChannelPostService:
         return list(result.scalars().all())
 
     @staticmethod
-    async def generate_post_text(movie: Movie) -> str:
+    async def get_bot_username(bot) -> str:
+        """Bot username'ni olish."""
+        try:
+            me = await bot.get_me()
+            return f"@{me.username}"
+        except Exception:
+            return "@fastkinoobot"
+
+    @staticmethod
+    async def generate_post_text(movie: Movie, bot_username: str) -> str:
         """ChatGPT orqali kino uchun chiroyli post matni yaratish."""
         if not config.OPENAI_API_KEY:
             logger.error("OPENAI_API_KEY sozlanmagan!")
-            return ChannelPostService._fallback_post(movie)
+            return ChannelPostService._fallback_post(movie, bot_username)
 
         client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 
@@ -42,117 +52,125 @@ class ChannelPostService:
             )
 
         prompt = f"""Sen Telegram kanal uchun kino tavsiya postlari yozuvchi mutaxassisan.
-Quyidagi kino haqida o'zbek tilida chiroyli, qiziqarli va jozibali post yoz.
-Post Telegram uchun HTML formatda bo'lsin (faqat <b>, <i>, <u>, <a> taglaridan foydalanishing mumkin).
+Quyidagi kino haqida o'zbek tilida FAQAT 2-3 ta qisqa gap bilan tavsif yoz.
+Tavsif qiziqarli, jozibali va oddiy tilda bo'lsin. Tomoshabinni kinoni ko'rishga undaydigan matn bo'lsin.
 
 Kino ma'lumotlari:
 - Nomi: {movie.title}
-- O'zbekcha nomi: {movie.title_uz or "Nomaʼlum"}
+- O'zbekcha nomi: {movie.title_uz or movie.title}
 - Yili: {movie.year or "Nomaʼlum"}
-- Sifati: {movie.quality or "Nomaʼlum"}
-- Tili: {movie.language or "Nomaʼlum"}
 - Janri: {genre_text or "Nomaʼlum"}
 - Tavsif: {movie.description or "Mavjud emas"}
 
-Talablar:
-1. Post qisqa va ta'sirli bo'lsin (3-5 qator)
-2. Emoji ishlatish mumkin, lekin haddan tashqari ko'p emas
-3. Kino haqida qiziqarli fakt yoki tavsiya qo'sh
-4. Oxirida botdan olish uchun kod ko'rsat: {movie.code}
-5. Bot havolasini qo'shma, faqat "Kod: {movie.code}" deb yoz
-6. Kanal nomini yoki boshqa havolalarni qo'shma
-7. Faqat post matnini qaytaring, boshqa hech narsa yozma"""
+MUHIM QOIDALAR:
+- FAQAT 2-3 ta gap yoz, ortiq emas
+- Hech qanday HTML tag ishlatma (<b>, <i> va h.k. ISHLATMA)
+- Hech qanday emoji ishlatma
+- Kino nomi, yili, kodi, bot nomi — YOZMA, faqat tavsif yoz
+- Hech qanday sarlavha yoki format qo'shma
+- Faqat oddiy matn qaytaring"""
 
         try:
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
-                temperature=0.8,
+                max_tokens=200,
+                temperature=0.7,
             )
-            text = response.choices[0].message.content.strip()
-            # Telegram faqat <b>, <i>, <u>, <s>, <a>, <code>, <pre> taglarni qo'llab-quvvatlaydi
-            # ChatGPT ba'zan <br>, <p>, <h1> kabi taglar ishlatadi — ularni tozalash
-            text = ChannelPostService._clean_html(text)
-            return text
+            description = response.choices[0].message.content.strip()
+            # Har ehtimolga HTML tozalash
+            description = ChannelPostService._clean_html(description)
+            # Yakuniy post formatini yig'ish
+            return ChannelPostService._format_post(movie, description, bot_username)
         except Exception as e:
             logger.error(f"OpenAI API xatosi: {e}")
-            return ChannelPostService._fallback_post(movie)
+            return ChannelPostService._fallback_post(movie, bot_username)
+
+    @staticmethod
+    def _format_post(movie: Movie, description: str, bot_username: str) -> str:
+        """Yakuniy chiroyli post formatini yig'ish."""
+        genre_text = ""
+        if movie.genres:
+            genre_text = ", ".join(
+                g.name_uz or g.name_ru or "" for g in movie.genres
+            )
+
+        lines = [
+            f"🎬 <b>{movie.title}</b>",
+        ]
+
+        if movie.title_uz and movie.title_uz != movie.title:
+            lines.append(f"🇺🇿 {movie.title_uz}")
+
+        lines.append("")  # Bo'sh qator
+
+        # Ma'lumotlar
+        if movie.year:
+            lines.append(f"📅 Yili: <b>{movie.year}</b>")
+        if genre_text:
+            lines.append(f"🎭 Janr: {genre_text}")
+        if movie.quality:
+            lines.append(f"📺 Sifat: {movie.quality}")
+        if movie.language:
+            lines.append(f"🌐 Til: {movie.language}")
+
+        lines.append("")  # Bo'sh qator
+
+        # ChatGPT tavsifi
+        lines.append(f"💬 {description}")
+
+        lines.append("")  # Bo'sh qator
+
+        # Bot va kod
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
+        lines.append(f"📥 Kino olish uchun: {bot_username}")
+        lines.append(f"🔑 Kod: <code>{movie.code}</code>")
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _fallback_post(movie: Movie, bot_username: str) -> str:
+        """API ishlamasa oddiy post."""
+        return ChannelPostService._format_post(
+            movie,
+            "Bu kinoni tomosha qiling, afsuski tavsif mavjud emas.",
+            bot_username,
+        )
 
     @staticmethod
     def _clean_html(text: str) -> str:
-        """Telegram qo'llab-quvvatlamaydigan HTML taglarni tozalash."""
-        import re
-        # Ruxsat berilgan taglar
-        allowed_tags = {"b", "i", "u", "s", "a", "code", "pre", "em", "strong"}
-        # <br> va <br/> ni yangi qatorga almashtirish
+        """Barcha HTML taglarni tozalash (tavsifda tag bo'lmasligi kerak)."""
         text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-        # <p>...</p> ni matn + yangi qator qilish
-        text = re.sub(r"<p>(.*?)</p>", r"\1\n", text, flags=re.IGNORECASE | re.DOTALL)
-        # <em> -> <i>, <strong> -> <b>
-        text = re.sub(r"<em>(.*?)</em>", r"<i>\1</i>", text, flags=re.IGNORECASE | re.DOTALL)
-        text = re.sub(r"<strong>(.*?)</strong>", r"<b>\1</b>", text, flags=re.IGNORECASE | re.DOTALL)
-        # Ruxsat berilmagan barcha taglarni o'chirish
-        def remove_tag(match):
-            tag_name = re.match(r"</?(\w+)", match.group(0))
-            if tag_name and tag_name.group(1).lower() in allowed_tags:
-                return match.group(0)
-            return ""
-        text = re.sub(r"</?[^>]+>", remove_tag, text)
-        # Ortiqcha bo'sh qatorlarni tozalash
+        text = re.sub(r"<[^>]+>", "", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
     @staticmethod
-    def _fallback_post(movie: Movie) -> str:
-        """API ishlamasa oddiy post."""
-        genres = ""
-        if movie.genres:
-            genres = " | ".join(g.name_uz or g.name_ru or "" for g in movie.genres)
-
-        return (
-            f"🎬 <b>{movie.title}</b>\n\n"
-            f"📅 Yili: {movie.year or 'Nomaʼlum'}\n"
-            f"🎭 Janr: {genres or 'Nomaʼlum'}\n"
-            f"📺 Sifat: {movie.quality or 'Nomaʼlum'}\n"
-            f"🌐 Til: {movie.language or 'Nomaʼlum'}\n\n"
-            f"📥 Olish uchun kod: <code>{movie.code}</code>"
-        )
-
-    @staticmethod
     async def search_movie_image(movie_title: str) -> str | None:
-        """Internetdan kino uchun rasm URL topish (TMDb orqali)."""
-        # TMDb API - bepul va registratsiya kerak emas deb ishlatamiz
-        # Avval oddiy Google Images fallback ishlatamiz
-        try:
-            # TMDb API bilan qidirish (API key kerak emas, poster URL)
-            search_query = movie_title.split("(")[0].strip()  # Yil va boshqa narsalarni olib tashlash
-
-            # OpenAI orqali rasm generatsiya qilish
-            if config.OPENAI_API_KEY:
-                client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
-                try:
-                    response = await client.images.generate(
-                        model="dall-e-3",
-                        prompt=f"Movie poster style image for a film called '{search_query}'. Cinematic, dramatic lighting, professional movie poster aesthetic.",
-                        n=1,
-                        size="1024x1024",
-                    )
-                    return response.data[0].url
-                except Exception as e:
-                    logger.warning(f"DALL-E rasm yaratish xatosi: {e}")
-
+        """DALL-E orqali kino uchun poster rasm yaratish."""
+        if not config.OPENAI_API_KEY:
             return None
+
+        try:
+            search_query = movie_title.split("(")[0].strip()
+            client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+            response = await client.images.generate(
+                model="dall-e-3",
+                prompt=f"Professional cinematic movie poster for '{search_query}'. Dramatic lighting, high quality, no text on image.",
+                n=1,
+                size="1024x1024",
+            )
+            return response.data[0].url
         except Exception as e:
-            logger.error(f"Rasm qidirish xatosi: {e}")
+            logger.warning(f"DALL-E rasm yaratish xatosi: {e}")
             return None
 
     @staticmethod
     async def download_image(url: str) -> bytes | None:
         """URL dan rasmni yuklab olish."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with aiohttp.ClientSession() as http:
+                async with http.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                     if resp.status == 200:
                         return await resp.read()
             return None
@@ -161,59 +179,95 @@ Talablar:
             return None
 
     @staticmethod
-    async def post_movie_to_channel(bot, movie: Movie, session: AsyncSession):
-        """Bitta kinoni kanalga post qilish."""
-        channel = config.CHANNEL_POST_USERNAME
+    async def prepare_post(bot, movie: Movie) -> dict:
+        """Post tayyorlash (matn + rasm) — lekin yubormaslik. Admin tasdiqlashi uchun."""
+        bot_username = await ChannelPostService.get_bot_username(bot)
+        text = await ChannelPostService.generate_post_text(movie, bot_username)
 
-        # 1. ChatGPT orqali chiroyli matn yaratish
-        text = await ChannelPostService.generate_post_text(movie)
-
-        # 2. Rasm topish
+        # Rasm: avval DALL-E, keyin poster_file_id, keyin None
         image_url = await ChannelPostService.search_movie_image(movie.title)
+        image_data = None
+        if image_url:
+            image_data = await ChannelPostService.download_image(image_url)
+
+        return {
+            "movie": movie,
+            "text": text,
+            "image_data": image_data,
+            "poster_file_id": movie.poster_file_id if not image_data else None,
+        }
+
+    @staticmethod
+    async def send_to_channel(bot, post_data: dict) -> bool:
+        """Tasdiqlangan postni kanalga yuborish."""
+        channel = config.CHANNEL_POST_USERNAME
+        text = post_data["text"]
 
         try:
-            if image_url:
-                # Rasmni yuklash
-                image_data = await ChannelPostService.download_image(image_url)
-                if image_data:
-                    from aiogram.types import BufferedInputFile
-                    photo = BufferedInputFile(image_data, filename="movie_poster.jpg")
-                    await bot.send_photo(
-                        chat_id=channel,
-                        photo=photo,
-                        caption=text,
-                        parse_mode="HTML",
-                    )
-                    logger.info(f"Kanalga rasm bilan post yuborildi: {movie.title}")
-                    return True
-
-            # Agar poster_file_id mavjud bo'lsa, shu bilan yuborish
-            if movie.poster_file_id:
+            if post_data.get("image_data"):
+                from aiogram.types import BufferedInputFile
+                photo = BufferedInputFile(post_data["image_data"], filename="movie_poster.jpg")
                 await bot.send_photo(
                     chat_id=channel,
-                    photo=movie.poster_file_id,
+                    photo=photo,
                     caption=text,
                     parse_mode="HTML",
                 )
-                logger.info(f"Kanalga poster bilan post yuborildi: {movie.title}")
-                return True
+            elif post_data.get("poster_file_id"):
+                await bot.send_photo(
+                    chat_id=channel,
+                    photo=post_data["poster_file_id"],
+                    caption=text,
+                    parse_mode="HTML",
+                )
+            else:
+                await bot.send_message(
+                    chat_id=channel,
+                    text=text,
+                    parse_mode="HTML",
+                )
 
-            # Faqat matn bilan yuborish
-            await bot.send_message(
-                chat_id=channel,
-                text=text,
-                parse_mode="HTML",
-            )
-            logger.info(f"Kanalga matn post yuborildi: {movie.title}")
+            logger.info(f"Kanalga post yuborildi: {post_data['movie'].title}")
             return True
-
         except Exception as e:
-            logger.error(f"Kanalga post yuborishda xato ({movie.title}): {e}")
+            logger.error(f"Kanalga post yuborishda xato: {e}")
             return False
 
     @staticmethod
+    async def send_preview(bot, chat_id: int, post_data: dict):
+        """Adminga preview ko'rsatish."""
+        text = post_data["text"]
+
+        try:
+            if post_data.get("image_data"):
+                from aiogram.types import BufferedInputFile
+                photo = BufferedInputFile(post_data["image_data"], filename="preview.jpg")
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photo,
+                    caption=text,
+                    parse_mode="HTML",
+                )
+            elif post_data.get("poster_file_id"):
+                await bot.send_photo(
+                    chat_id=chat_id,
+                    photo=post_data["poster_file_id"],
+                    caption=text,
+                    parse_mode="HTML",
+                )
+            else:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                )
+        except Exception as e:
+            logger.error(f"Preview yuborishda xato: {e}")
+            raise
+
+    @staticmethod
     async def daily_channel_post(bot, db_session_factory):
-        """Kunlik avtomatik kanal posti - har kuni 1-3 ta random kino."""
+        """Kunlik avtomatik kanal posti — adminga tasdiqlash uchun yuboradi."""
         try:
             async with db_session_factory() as session:
                 movies = await ChannelPostService.get_random_movies(session)
@@ -222,20 +276,19 @@ Talablar:
                     logger.warning("Kanal post uchun kinolar topilmadi!")
                     return
 
-                logger.info(f"Kunlik kanal post: {len(movies)} ta kino tanlanadi")
+                logger.info(f"Kunlik kanal post: {len(movies)} ta kino tanlandi")
 
                 for movie in movies:
-                    success = await ChannelPostService.post_movie_to_channel(
-                        bot, movie, session
-                    )
-                    if not success:
+                    post_data = await ChannelPostService.prepare_post(bot, movie)
+                    result = await ChannelPostService.send_to_channel(bot, post_data)
+                    if not result:
                         logger.error(f"Post yuborilmadi: {movie.title}")
 
                 # Adminlarga xabar
                 for admin_id in config.admins_list:
                     try:
                         movie_names = "\n".join(
-                            f"  - {m.title} (kod: {m.code})" for m in movies
+                            f"  🎬 {m.title} (kod: {m.code})" for m in movies
                         )
                         await bot.send_message(
                             admin_id,

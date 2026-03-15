@@ -13,7 +13,7 @@ from config import config
 
 
 class ForceJoinMiddleware(BaseMiddleware):
-    """Check if user is subscribed to mandatory channels."""
+    """Check if user is subscribed to mandatory channels/bots."""
 
     async def __call__(
         self,
@@ -72,7 +72,7 @@ class ForceJoinMiddleware(BaseMiddleware):
         if not bot:
             return await handler(event, data)
 
-        # Get mandatory channels
+        # Get mandatory channels and bots
         result = await session.execute(
             select(Channel).where(Channel.is_mandatory == True, Channel.is_active == True)
         )
@@ -84,6 +84,15 @@ class ForceJoinMiddleware(BaseMiddleware):
         # Check subscription
         not_subscribed = []
         for channel in channels:
+            # Bot turini tekshirib bo'lmaydi - faqat linkini ko'rsatamiz
+            if channel.channel_type == "bot":
+                not_subscribed.append({
+                    "title": channel.title or "Bot",
+                    "username": channel.channel_username,
+                    "type": "bot",
+                })
+                continue
+
             try:
                 member = await bot.get_chat_member(
                     chat_id=channel.channel_id,
@@ -93,6 +102,7 @@ class ForceJoinMiddleware(BaseMiddleware):
                     not_subscribed.append({
                         "title": channel.title or "Kanal",
                         "username": channel.channel_username,
+                        "type": "channel",
                     })
             except TelegramBadRequest:
                 logger.warning(f"Cannot check channel {channel.channel_id}")
@@ -103,7 +113,7 @@ class ForceJoinMiddleware(BaseMiddleware):
 
         if not_subscribed:
             text = (
-                "⚠️ <b>Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:</b>\n\n"
+                "⚠️ <b>Botdan foydalanish uchun quyidagilarga obuna bo'ling:</b>\n\n"
                 "Obuna bo'lgandan keyin «✅ Tekshirish» tugmasini bosing."
             )
             kb = force_join_kb(not_subscribed)

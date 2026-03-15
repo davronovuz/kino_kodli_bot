@@ -26,6 +26,19 @@ async def create_db():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables created successfully")
+
+        # Migration: channel_type ustunini qo'shish (agar mavjud bo'lmasa)
+        from sqlalchemy import text
+        async with engine.begin() as conn:
+            try:
+                await conn.execute(text(
+                    "ALTER TABLE channels ADD COLUMN IF NOT EXISTS "
+                    "channel_type VARCHAR(20) DEFAULT 'channel'"
+                ))
+                logger.info("Migration: channel_type column ensured")
+            except Exception:
+                pass  # Ustun allaqachon mavjud yoki DB IF NOT EXISTS ni qo'llab-quvvatlamaydi
+
     except Exception as e:
         logger.error(f"Error creating database tables: {e}")
         raise

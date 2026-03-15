@@ -70,6 +70,10 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
 
     not_subscribed = []
     for channel in channels:
+        # Bot turini API orqali tekshirib bo'lmaydi - o'tkazib yuboramiz
+        if channel.channel_type == "bot":
+            continue
+
         try:
             member = await bot.get_chat_member(
                 chat_id=channel.channel_id, user_id=callback.from_user.id,
@@ -78,6 +82,7 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
                 not_subscribed.append({
                     "title": channel.title or "Kanal",
                     "username": channel.channel_username,
+                    "type": "channel",
                 })
         except Exception:
             continue

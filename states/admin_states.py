@@ -28,6 +28,7 @@ class BroadcastStates(StatesGroup):
 
 class AddChannelStates(StatesGroup):
     waiting_channel = State()
+    waiting_bot = State()
 
 
 class ImportStates(StatesGroup):

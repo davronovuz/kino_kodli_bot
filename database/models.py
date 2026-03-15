@@ -116,6 +116,7 @@ class Channel(Base):
     channel_id = Column(BigInteger, unique=True, nullable=False)
     channel_username = Column(String(255), nullable=True)
     title = Column(String(500), nullable=True)
+    channel_type = Column(String(20), default="channel")  # "channel" or "bot"
     is_mandatory = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

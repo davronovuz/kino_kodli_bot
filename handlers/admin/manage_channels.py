@@ -20,12 +20,13 @@ async def manage_channels(message: Message, session: AsyncSession):
     channels = result.scalars().all()
 
     if not channels:
-        text = "📡 <b>Majburiy kanallar</b>\n\nHozircha kanal yo'q."
+        text = "📡 <b>Majburiy kanallar va botlar</b>\n\nHozircha kanal/bot yo'q."
     else:
-        text = "📡 <b>Majburiy kanallar:</b>\n\n"
+        text = "📡 <b>Majburiy kanallar va botlar:</b>\n\n"
         for ch in channels:
             status = "✅ Faol" if ch.is_active else "❌ O'chirilgan"
-            text += f"• {ch.title or ch.channel_username} — {status}\n"
+            type_label = "🤖 Bot" if ch.channel_type == "bot" else "📢 Kanal"
+            text += f"• {type_label} {ch.title or ch.channel_username} — {status}\n"
 
     await message.answer(
         text,
@@ -52,10 +53,11 @@ async def toggle_channel(callback: CallbackQuery, session: AsyncSession):
     result = await session.execute(select(Channel).order_by(Channel.created_at))
     channels = result.scalars().all()
 
-    text = "📡 <b>Majburiy kanallar:</b>\n\n"
+    text = "📡 <b>Majburiy kanallar va botlar:</b>\n\n"
     for ch in channels:
         status = "✅ Faol" if ch.is_active else "❌ O'chirilgan"
-        text += f"• {ch.title or ch.channel_username} — {status}\n"
+        type_label = "🤖 Bot" if ch.channel_type == "bot" else "📢 Kanal"
+        text += f"• {type_label} {ch.title or ch.channel_username} — {status}\n"
 
     try:
         await callback.message.edit_text(
@@ -135,6 +137,72 @@ async def add_channel_receive(message: Message, state: FSMContext, session: Asyn
             f"💡 Botni kanalga admin qiling va qaytadan urinib ko'ring.",
             parse_mode="HTML",
         )
+
+    await state.clear()
+    await message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+
+
+@router.callback_query(F.data == "ch:addbot")
+async def add_bot_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AddChannelStates.waiting_bot)
+    await callback.message.edit_text(
+        "🤖 <b>Bot qo'shish</b>\n\n"
+        "Bot username ni yuboring.\n\n"
+        "Masalan: <code>@tinchrobot</code> yoki <code>tinchrobot</code>",
+        parse_mode="HTML",
+    )
+    await callback.message.answer("Bot username ni yuboring:", reply_markup=cancel_kb())
+    await callback.answer()
+
+
+@router.message(AddChannelStates.waiting_bot)
+async def add_bot_receive(message: Message, state: FSMContext, session: AsyncSession):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("❌ Bekor qilindi.", reply_markup=admin_menu_kb())
+        return
+
+    bot_username = message.text.strip().lstrip("@")
+
+    if not bot_username:
+        await message.answer("❌ Username bo'sh bo'lishi mumkin emas!")
+        return
+
+    # Check if already exists
+    existing = await session.execute(
+        select(Channel).where(Channel.channel_username == bot_username)
+    )
+    if existing.scalar_one_or_none():
+        await message.answer("⚠️ Bu bot allaqachon qo'shilgan!")
+        await state.clear()
+        await message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+        return
+
+    # Bot uchun channel_id sifatida 0 yoki unique raqam ishlatamiz
+    # Bot username bo'yicha unique bo'ladi
+    import time
+    fake_id = int(time.time())  # Unique ID sifatida timestamp
+
+    channel = Channel(
+        channel_id=fake_id,
+        channel_username=bot_username,
+        title=f"@{bot_username}",
+        channel_type="bot",
+        is_mandatory=True,
+        is_active=True,
+    )
+    session.add(channel)
+    await session.commit()
+
+    await message.answer(
+        f"✅ Bot qo'shildi!\n\n"
+        f"🤖 @{bot_username}\n\n"
+        f"ℹ️ Foydalanuvchilarga botga /start bosish talab qilinadi.\n"
+        f"⚠️ Bot obunasini Telegram API tekshira olmaydi, "
+        f"shuning uchun foydalanuvchi «Tekshirish» bosganda bot o'tkazib yuboriladi.",
+        parse_mode="HTML",
+    )
+    logger.info(f"Bot added to mandatory list: @{bot_username} by admin {message.from_user.id}")
 
     await state.clear()
     await message.answer("Admin menyu:", reply_markup=admin_menu_kb())

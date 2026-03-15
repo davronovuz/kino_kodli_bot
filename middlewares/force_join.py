@@ -83,10 +83,11 @@ class ForceJoinMiddleware(BaseMiddleware):
 
         # Check subscription
         not_subscribed = []
+        bot_entries = []
         for channel in channels:
-            # Bot turini tekshirib bo'lmaydi - faqat linkini ko'rsatamiz
+            # Bot turini tekshirib bo'lmaydi - alohida saqlaymiz
             if channel.channel_type == "bot":
-                not_subscribed.append({
+                bot_entries.append({
                     "title": channel.title or "Bot",
                     "username": channel.channel_username,
                     "type": "bot",
@@ -110,6 +111,11 @@ class ForceJoinMiddleware(BaseMiddleware):
             except Exception as e:
                 logger.error(f"Error checking channel {channel.channel_id}: {e}")
                 continue
+
+        # Kanal obuna bo'lmagan bo'lsa, bot linkiniham ko'rsatamiz
+        # Kanallar hammasi obuna bo'lsa - o'tkazib yuboramiz
+        if not_subscribed:
+            not_subscribed.extend(bot_entries)
 
         if not_subscribed:
             text = (

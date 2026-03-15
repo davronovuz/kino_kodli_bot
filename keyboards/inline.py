@@ -88,19 +88,13 @@ def skip_kb() -> ReplyKeyboardMarkup:
 
 def force_join_kb(channels: List[dict]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    bot_count = 0
-    channel_count = 0
+    count = 0
     for ch in channels:
+        count += 1
         is_bot = ch.get("type") == "bot"
         username = ch['username'].lstrip('@')
         url = f"https://t.me/{username}?start=ref" if is_bot else f"https://t.me/{username}"
-        if is_bot:
-            bot_count += 1
-            label = f"🤖 {bot_count}-bot"
-        else:
-            channel_count += 1
-            label = f"📢 {channel_count}-kanal"
-        builder.row(InlineKeyboardButton(text=label, url=url))
+        builder.row(InlineKeyboardButton(text=f"📢 {count}-kanal", url=url))
     builder.row(InlineKeyboardButton(
         text="✅ Tekshirish",
         callback_data="check_subscription"

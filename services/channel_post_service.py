@@ -70,10 +70,38 @@ Talablar:
                 max_tokens=500,
                 temperature=0.8,
             )
-            return response.choices[0].message.content.strip()
+            text = response.choices[0].message.content.strip()
+            # Telegram faqat <b>, <i>, <u>, <s>, <a>, <code>, <pre> taglarni qo'llab-quvvatlaydi
+            # ChatGPT ba'zan <br>, <p>, <h1> kabi taglar ishlatadi — ularni tozalash
+            text = ChannelPostService._clean_html(text)
+            return text
         except Exception as e:
             logger.error(f"OpenAI API xatosi: {e}")
             return ChannelPostService._fallback_post(movie)
+
+    @staticmethod
+    def _clean_html(text: str) -> str:
+        """Telegram qo'llab-quvvatlamaydigan HTML taglarni tozalash."""
+        import re
+        # Ruxsat berilgan taglar
+        allowed_tags = {"b", "i", "u", "s", "a", "code", "pre", "em", "strong"}
+        # <br> va <br/> ni yangi qatorga almashtirish
+        text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+        # <p>...</p> ni matn + yangi qator qilish
+        text = re.sub(r"<p>(.*?)</p>", r"\1\n", text, flags=re.IGNORECASE | re.DOTALL)
+        # <em> -> <i>, <strong> -> <b>
+        text = re.sub(r"<em>(.*?)</em>", r"<i>\1</i>", text, flags=re.IGNORECASE | re.DOTALL)
+        text = re.sub(r"<strong>(.*?)</strong>", r"<b>\1</b>", text, flags=re.IGNORECASE | re.DOTALL)
+        # Ruxsat berilmagan barcha taglarni o'chirish
+        def remove_tag(match):
+            tag_name = re.match(r"</?(\w+)", match.group(0))
+            if tag_name and tag_name.group(1).lower() in allowed_tags:
+                return match.group(0)
+            return ""
+        text = re.sub(r"</?[^>]+>", remove_tag, text)
+        # Ortiqcha bo'sh qatorlarni tozalash
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     @staticmethod
     def _fallback_post(movie: Movie) -> str:

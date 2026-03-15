@@ -2,7 +2,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, delete
 from loguru import logger
 
 from filters.admin_filter import IsAdmin
@@ -68,6 +68,44 @@ async def toggle_channel(callback: CallbackQuery, session: AsyncSession):
     except Exception:
         pass
     await callback.answer("✅ Yangilandi!")
+
+
+@router.callback_query(F.data.startswith("chdel:"))
+async def delete_channel(callback: CallbackQuery, session: AsyncSession):
+    channel_id = int(callback.data.split(":")[1])
+
+    result = await session.execute(select(Channel).where(Channel.id == channel_id))
+    channel = result.scalar_one_or_none()
+
+    if channel:
+        title = channel.title or channel.channel_username
+        await session.execute(delete(Channel).where(Channel.id == channel_id))
+        await session.commit()
+        await callback.answer(f"🗑 {title} o'chirildi!", show_alert=True)
+    else:
+        await callback.answer("⚠️ Topilmadi!", show_alert=True)
+
+    # Refresh list
+    result = await session.execute(select(Channel).order_by(Channel.created_at))
+    channels = result.scalars().all()
+
+    if not channels:
+        text = "📡 <b>Majburiy kanallar va botlar</b>\n\nHozircha kanal/bot yo'q."
+    else:
+        text = "📡 <b>Majburiy kanallar va botlar:</b>\n\n"
+        for ch in channels:
+            status = "✅ Faol" if ch.is_active else "❌ O'chirilgan"
+            type_label = "🤖 Bot" if ch.channel_type == "bot" else "📢 Kanal"
+            text += f"• {type_label} {ch.title or ch.channel_username} — {status}\n"
+
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=channel_manage_kb(channels),
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data == "ch:add")

@@ -88,15 +88,19 @@ def skip_kb() -> ReplyKeyboardMarkup:
 
 def force_join_kb(channels: List[dict]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    bot_count = 0
+    channel_count = 0
     for ch in channels:
         is_bot = ch.get("type") == "bot"
-        emoji = "🤖" if is_bot else "📢"
         username = ch['username'].lstrip('@')
         url = f"https://t.me/{username}?start=ref" if is_bot else f"https://t.me/{username}"
-        builder.row(InlineKeyboardButton(
-            text=f"{emoji} {ch.get('title', 'Bot' if is_bot else 'Kanal')}",
-            url=url,
-        ))
+        if is_bot:
+            bot_count += 1
+            label = f"🤖 {bot_count}-bot"
+        else:
+            channel_count += 1
+            label = f"📢 {channel_count}-kanal"
+        builder.row(InlineKeyboardButton(text=label, url=url))
     builder.row(InlineKeyboardButton(
         text="✅ Tekshirish",
         callback_data="check_subscription"
@@ -229,10 +233,16 @@ def channel_manage_kb(channels: list) -> InlineKeyboardMarkup:
     for ch in channels:
         status = "✅" if ch.is_active else "❌"
         type_emoji = "🤖" if ch.channel_type == "bot" else "📢"
-        builder.row(InlineKeyboardButton(
-            text=f"{status} {type_emoji} {ch.title or ch.channel_username}",
-            callback_data=f"chtoggle:{ch.id}"
-        ))
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{status} {type_emoji} {ch.title or ch.channel_username}",
+                callback_data=f"chtoggle:{ch.id}"
+            ),
+            InlineKeyboardButton(
+                text="🗑",
+                callback_data=f"chdel:{ch.id}"
+            ),
+        )
     builder.row(
         InlineKeyboardButton(text="➕ Kanal qo'shish", callback_data="ch:add"),
         InlineKeyboardButton(text="🤖 Bot qo'shish", callback_data="ch:addbot"),

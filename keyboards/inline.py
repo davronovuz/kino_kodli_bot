@@ -64,6 +64,9 @@ def admin_menu_kb() -> ReplyKeyboardMarkup:
         KeyboardButton(text="📋 Audit log"),
     )
     builder.row(
+        KeyboardButton(text="📢 Kanal post"),
+    )
+    builder.row(
         KeyboardButton(text="🔙 Asosiy menyu"),
     )
     return builder.as_markup(resize_keyboard=True)

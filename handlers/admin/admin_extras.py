@@ -576,3 +576,117 @@ async def show_audit_log(message: Message, session: AsyncSession):
         text += f"🕐 {date_str} | 👤 {log.admin_id}\n   {log.action}{detail}\n\n"
 
     await message.answer(text, parse_mode="HTML")
+
+
+# ============== KANAL POST BOSHQARUVI ==============
+
+class ChannelPostStates(StatesGroup):
+    waiting_movie_code = State()
+
+
+@router.message(F.text == "📢 Kanal post")
+async def channel_post_menu(message: Message):
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🎲 Random post (1-3 ta)", callback_data="chpost:random"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="🎯 Kod bilan post", callback_data="chpost:bycode"),
+    )
+    builder.row(
+        InlineKeyboardButton(text="❌ Bekor", callback_data="chpost:cancel"),
+    )
+
+    await message.answer(
+        "📢 <b>Kanal post boshqaruvi</b>\n\n"
+        f"📍 Kanal: <code>{config.CHANNEL_POST_USERNAME}</code>\n"
+        f"⏰ Avtomatik: har kuni 10:00 va 18:00\n\n"
+        "Quyidagilardan birini tanlang:",
+        parse_mode="HTML",
+        reply_markup=builder.as_markup(),
+    )
+
+
+@router.callback_query(F.data == "chpost:random")
+async def channel_post_random(callback: CallbackQuery, session: AsyncSession, bot: Bot):
+    await callback.message.edit_text("⏳ Random kinolar tanlanmoqda va post tayyorlanmoqda...")
+    await callback.answer()
+
+    try:
+        from services.channel_post_service import ChannelPostService
+        movies = await ChannelPostService.get_random_movies(session)
+
+        if not movies:
+            await callback.message.edit_text("❌ Bazada faol kinolar topilmadi!")
+            return
+
+        success_count = 0
+        for movie in movies:
+            result = await ChannelPostService.post_movie_to_channel(bot, movie, session)
+            if result:
+                success_count += 1
+
+        movie_list = "\n".join(f"  🎬 [{m.code}] {m.title}" for m in movies)
+        await callback.message.edit_text(
+            f"✅ {success_count}/{len(movies)} ta post yuborildi!\n\n{movie_list}",
+            parse_mode="HTML",
+        )
+        await callback.message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+    except Exception as e:
+        await callback.message.edit_text(f"❌ Xato: {str(e)[:200]}")
+
+
+@router.callback_query(F.data == "chpost:bycode")
+async def channel_post_bycode(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(ChannelPostStates.waiting_movie_code)
+    await callback.message.edit_text(
+        "🎯 Kanalga post qilmoqchi bo'lgan kino kodini kiriting:"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "chpost:cancel")
+async def channel_post_cancel(callback: CallbackQuery):
+    await callback.message.edit_text("❌ Bekor qilindi.")
+    await callback.answer()
+
+
+@router.message(ChannelPostStates.waiting_movie_code)
+async def channel_post_code_entered(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu_kb())
+        return
+
+    try:
+        code = int(message.text.strip())
+    except ValueError:
+        await message.answer("❌ Kino kodini raqamda kiriting!")
+        return
+
+    movie = await MovieRepository.get_by_code(session, code)
+    if not movie:
+        await message.answer("❌ Kino topilmadi!")
+        return
+
+    await state.clear()
+    progress = await message.answer(f"⏳ <b>[{code}] {movie.title}</b> uchun post tayyorlanmoqda...", parse_mode="HTML")
+
+    try:
+        from services.channel_post_service import ChannelPostService
+        result = await ChannelPostService.post_movie_to_channel(bot, movie, session)
+
+        if result:
+            await progress.edit_text(
+                f"✅ Post yuborildi!\n\n🎬 <b>[{code}] {movie.title}</b>",
+                parse_mode="HTML",
+            )
+        else:
+            await progress.edit_text("❌ Post yuborishda xatolik!")
+
+        await message.answer("Admin menyu:", reply_markup=admin_menu_kb())
+    except Exception as e:
+        await progress.edit_text(f"❌ Xato: {str(e)[:200]}")

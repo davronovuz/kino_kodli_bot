@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # Mandatory channels (comma separated)
     MANDATORY_CHANNELS: str = ""
 
+    # OpenAI API
+    OPENAI_API_KEY: str = ""
+
+    # Channel for auto-posting movies
+    CHANNEL_POST_USERNAME: str = "@tarjimakinolarfast"
+
     @property
     def admins_list(self) -> List[int]:
         if not self.ADMINS.strip():

@@ -223,6 +223,21 @@ async def main():
             logger.error(f"Weekly top error: {e}")
 
     scheduler.add_job(weekly_top_collection, "cron", day_of_week="mon", hour=9, minute=30)
+
+    # Kunlik kanal post — har kuni 10:00 va 18:00 da random kinolarni kanalga post qilish
+    async def daily_channel_post():
+        """Har kuni kanalga random kinolarni chiroyli post qilish."""
+        try:
+            from services.channel_post_service import ChannelPostService
+            await ChannelPostService.daily_channel_post(bot, async_session)
+        except Exception as e:
+            logger.error(f"Daily channel post error: {e}")
+
+    if config.OPENAI_API_KEY:
+        scheduler.add_job(daily_channel_post, "cron", hour=10, minute=0)
+        scheduler.add_job(daily_channel_post, "cron", hour=18, minute=0)
+        logger.info("Channel auto-post scheduled: 10:00 & 18:00")
+
     scheduler.start()
 
     # Start polling

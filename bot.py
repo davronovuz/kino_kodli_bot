@@ -110,9 +110,9 @@ async def main():
     dp.message.middleware(ThrottlingMiddleware())
     dp.callback_query.middleware(ThrottlingMiddleware())
 
-    # 4. Force join check
-    dp.message.middleware(ForceJoinMiddleware())
-    dp.callback_query.middleware(ForceJoinMiddleware())
+    # 4. Force join check (vaqtincha o'chirilgan)
+    # dp.message.middleware(ForceJoinMiddleware())
+    # dp.callback_query.middleware(ForceJoinMiddleware())
 
     # Register routers (admin first, then users)
     dp.include_router(get_admin_router())

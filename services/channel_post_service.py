@@ -1,6 +1,7 @@
 import re
 import random
 import aiohttp
+from html import escape as html_escape
 from loguru import logger
 from openai import AsyncOpenAI
 from sqlalchemy import select, func
@@ -89,18 +90,18 @@ MUHIM QOIDALAR:
     @staticmethod
     def _format_post(movie: Movie, description: str, bot_username: str) -> str:
         """Yakuniy chiroyli post formatini yig'ish."""
+        safe = lambda t: html_escape(str(t), quote=False) if t else ""
         genre_text = ""
         if movie.genres:
             genre_text = ", ".join(
-                g.name_uz or g.name_ru or "" for g in movie.genres
+                safe(g.name_uz or g.name_ru or "") for g in movie.genres
             )
-
         lines = [
-            f"🎬 <b>{movie.title}</b>",
+            f"🎬 <b>{safe(movie.title)}</b>",
         ]
 
         if movie.title_uz and movie.title_uz != movie.title:
-            lines.append(f"🇺🇿 {movie.title_uz}")
+            lines.append(f"🇺🇿 {safe(movie.title_uz)}")
 
         lines.append("")  # Bo'sh qator
 
@@ -110,14 +111,14 @@ MUHIM QOIDALAR:
         if genre_text:
             lines.append(f"🎭 Janr: {genre_text}")
         if movie.quality:
-            lines.append(f"📺 Sifat: {movie.quality}")
+            lines.append(f"📺 Sifat: {safe(movie.quality)}")
         if movie.language:
-            lines.append(f"🌐 Til: {movie.language}")
+            lines.append(f"🌐 Til: {safe(movie.language)}")
 
         lines.append("")  # Bo'sh qator
 
-        # ChatGPT tavsifi
-        lines.append(f"💬 {description}")
+        # ChatGPT tavsifi (HTML-safe)
+        lines.append(f"💬 {safe(description)}")
 
         lines.append("")  # Bo'sh qator
 

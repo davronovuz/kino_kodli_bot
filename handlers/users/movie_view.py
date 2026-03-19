@@ -13,7 +13,7 @@ from keyboards.inline import (
     filter_kb, filter_year_kb, filter_quality_kb, filter_lang_kb,
 )
 from keyboards.reply import main_menu_kb
-from utils.helpers import format_movie_caption, format_movie_list_item, calculate_pages, clean_title
+from utils.helpers import format_movie_caption, format_movie_list_item, calculate_pages, clean_title, safe_html
 from services.cache_service import CacheService
 from config import config
 from states.admin_states import ReviewStates
@@ -261,10 +261,10 @@ async def write_review_text(message: Message, state: FSMContext, session: AsyncS
     await state.clear()
 
     movie = await MovieRepository.get_by_id(session, movie_id)
-    title = clean_title(movie.title) if movie and movie.title else "Kino"
+    title = safe_html(clean_title(movie.title)) if movie and movie.title else "Kino"
     await message.answer(
         f"✅ <b>Sharh saqlandi!</b>\n\n"
-        f"🎬 {title}\n💬 {text[:100]}",
+        f"🎬 {title}\n💬 {safe_html(text[:100])}",
         parse_mode="HTML",
         reply_markup=main_menu_kb(),
     )
@@ -308,7 +308,7 @@ async def search_by_text(message: Message, session: AsyncSession, state: FSMCont
         # O'xshash nomlarni qidirish
         similar = await MovieRepository.search_similar_names(session, query, limit=5)
         if similar:
-            text = f"🔍 <b>«{query}»</b> topilmadi.\n\n💡 <b>Balki shulardan birimi?</b>\n\n"
+            text = f"🔍 <b>«{safe_html(query)}»</b> topilmadi.\n\n💡 <b>Balki shulardan birimi?</b>\n\n"
             for i, m in enumerate(similar, 1):
                 text += format_movie_list_item(m, i) + "\n"
             text += "\n🔢 Kodini yuboring."
@@ -317,11 +317,16 @@ async def search_by_text(message: Message, session: AsyncSession, state: FSMCont
             from aiogram.utils.keyboard import InlineKeyboardBuilder
             from aiogram.types import InlineKeyboardButton as IKB
             req_builder = InlineKeyboardBuilder()
+            # Callback data 64 baytdan oshmasligi kerak
+            # "request_movie:" = 14 bayt, qolganini truncate qilamiz
+            safe_query = query[:40]
+            while len(f"request_movie:{safe_query}".encode("utf-8")) > 64:
+                safe_query = safe_query[:-1]
             req_builder.row(IKB(
-                text="📩 Kino so'rash", callback_data=f"request_movie:{query[:50]}"
+                text="📩 Kino so'rash", callback_data=f"request_movie:{safe_query}"
             ))
             await message.answer(
-                f"🔍 <b>«{query}»</b> bo'yicha hech narsa topilmadi.\n\n"
+                f"🔍 <b>«{safe_html(query)}»</b> bo'yicha hech narsa topilmadi.\n\n"
                 f"💡 Boshqa nom yoki kodni kiriting.\n"
                 f"📩 Yoki pastdagi tugma orqali admin'dan so'rang!",
                 parse_mode="HTML",
@@ -333,7 +338,7 @@ async def search_by_text(message: Message, session: AsyncSession, state: FSMCont
         await send_movie(message, movies[0], session, message.from_user.id)
         return
 
-    text = f"🔍 <b>«{query}»</b> — {total} ta natija:\n\n"
+    text = f"🔍 <b>«{safe_html(query)}»</b> — {total} ta natija:\n\n"
     for i, movie in enumerate(movies, 1):
         text += format_movie_list_item(movie, i) + "\n"
     text += "\n🔢 Kodini yuboring."
@@ -341,7 +346,7 @@ async def search_by_text(message: Message, session: AsyncSession, state: FSMCont
     pages = calculate_pages(total, config.MOVIES_PER_PAGE)
     if pages > 1:
         await state.update_data(search_query=query)
-        kb = pagination_kb("search", 1, pages, query[:50])
+        kb = pagination_kb("search", 1, pages, query[:30])
     else:
         kb = None
 
@@ -362,13 +367,13 @@ async def search_page(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("Boshqa natija yo'q")
         return
 
-    text = f"🔍 <b>«{query}»</b> — {total} ta natija:\n\n"
+    text = f"🔍 <b>«{safe_html(query)}»</b> — {total} ta natija:\n\n"
     for i, movie in enumerate(movies, offset + 1):
         text += format_movie_list_item(movie, i) + "\n"
     text += "\n🔢 Kodini yuboring."
 
     pages = calculate_pages(total, config.MOVIES_PER_PAGE)
-    kb = pagination_kb("search", page, pages, query[:50])
+    kb = pagination_kb("search", page, pages, query[:30])
 
     try:
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
@@ -417,7 +422,7 @@ async def show_similar(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("O'xshash kinolar topilmadi")
         return
 
-    text = f"🎬 <b>«{clean_title(movie.title)}»</b> ga o'xshash kinolar:\n\n"
+    text = f"🎬 <b>«{safe_html(clean_title(movie.title))}»</b> ga o'xshash kinolar:\n\n"
     for i, m in enumerate(similar, 1):
         text += format_movie_list_item(m, i) + "\n"
     text += "\n🔢 Kodini yuboring."
@@ -548,13 +553,13 @@ async def show_reviews(callback: CallbackQuery, session: AsyncSession):
         await callback.answer("Hali sharhlar yo'q. Birinchi bo'lib yozing!")
         return
 
-    title = clean_title(movie.title) if movie.title else "Nomsiz"
+    title = safe_html(clean_title(movie.title)) if movie.title else "Nomsiz"
     text = f"💬 <b>«{title}»</b> sharhlari ({count} ta):\n\n"
     for r in reviews:
         user = await UserRepository.get_by_telegram_id(session, r.user_id)
-        name = user.full_name if user else "Foydalanuvchi"
+        name = safe_html(user.full_name) if user else "Foydalanuvchi"
         date_str = r.created_at.strftime("%d.%m.%Y")
-        text += f"👤 <b>{name}</b> ({date_str}):\n{r.text[:150]}\n\n"
+        text += f"👤 <b>{name}</b> ({date_str}):\n{safe_html(r.text[:150])}\n\n"
 
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
@@ -797,8 +802,8 @@ async def request_movie_inline(callback: CallbackQuery, session: AsyncSession):
             await callback.bot.send_message(
                 admin_id,
                 f"📩 <b>Yangi kino so'rovi!</b>\n\n"
-                f"👤 {callback.from_user.full_name} (@{callback.from_user.username})\n"
-                f"🎬 <b>{query}</b>\n\n"
+                f"👤 {safe_html(callback.from_user.full_name)} (@{callback.from_user.username})\n"
+                f"🎬 <b>{safe_html(query)}</b>\n\n"
                 f"Javob: /reply_{req.id} matn",
                 parse_mode="HTML",
             )

@@ -98,8 +98,10 @@ async def edit_movie_code(message: Message, state: FSMContext, session: AsyncSes
     builder.row(InlineKeyboardButton(text=protect_text, callback_data="efield:toggle_protect"))
     builder.row(InlineKeyboardButton(text="❌ Bekor", callback_data="efield:cancel"))
 
+    from html import escape as html_escape
+    safe_title = html_escape(str(movie.title or ""), quote=False)
     await message.answer(
-        f"✏️ <b>[{code}] {movie.title}</b>\n\nNimani o'zgartirmoqchisiz?",
+        f"✏️ <b>[{code}] {safe_title}</b>\n\nNimani o'zgartirmoqchisiz?",
         parse_mode="HTML", reply_markup=builder.as_markup(),
     )
 
@@ -406,7 +408,8 @@ async def add_to_collection(message: Message, session: AsyncSession):
 
     try:
         await CollectionRepository.add_movie(session, col_id, movie.id)
-        await message.answer(f"✅ <b>{movie.title}</b> → <b>{col.name}</b> ga qo'shildi!", parse_mode="HTML")
+        from html import escape as html_escape
+        await message.answer(f"✅ <b>{html_escape(str(movie.title or ''), quote=False)}</b> → <b>{html_escape(str(col.name or ''), quote=False)}</b> ga qo'shildi!", parse_mode="HTML")
     except Exception:
         await message.answer("⚠️ Bu kino allaqachon to'plamda.")
 
@@ -465,7 +468,8 @@ async def set_daily_movie(message: Message, session: AsyncSession):
         return
 
     await DailyMovieRepository.set_today(session, movie.id)
-    await message.answer(f"✅ Bugungi kino: <b>{movie.title}</b>", parse_mode="HTML")
+    from html import escape as html_escape
+    await message.answer(f"✅ Bugungi kino: <b>{html_escape(str(movie.title or ''), quote=False)}</b>", parse_mode="HTML")
 
 
 # ============== KINO O'CHIRISH ==============
@@ -516,9 +520,11 @@ async def delete_movie_code(message: Message, state: FSMContext, session: AsyncS
         InlineKeyboardButton(text="❌ Yo'q", callback_data="confirm_delete:no"),
     )
 
+    from html import escape as html_escape
+    safe_title = html_escape(str(movie.title or ""), quote=False)
     await message.answer(
         f"🗑 Rostdan o'chirilsinmi?\n\n"
-        f"🎬 <b>[{code}] {movie.title}</b>\n"
+        f"🎬 <b>[{code}] {safe_title}</b>\n"
         f"👁 Ko'rishlar: {movie.view_count}",
         parse_mode="HTML", reply_markup=builder.as_markup(),
     )
@@ -633,7 +639,8 @@ async def channel_post_random(callback: CallbackQuery, state: FSMContext, sessio
         _pending_posts[admin_id] = []
 
         for movie in movies:
-            await callback.message.answer(f"⏳ <b>{movie.title}</b> uchun post tayyorlanmoqda...", parse_mode="HTML")
+            from html import escape as html_escape
+            await callback.message.answer(f"⏳ <b>{html_escape(str(movie.title or ''), quote=False)}</b> uchun post tayyorlanmoqda...", parse_mode="HTML")
             post_data = await ChannelPostService.prepare_post(bot, movie)
             _pending_posts[admin_id].append(post_data)
 
@@ -714,7 +721,8 @@ async def channel_post_regenerate(callback: CallbackQuery, session: AsyncSession
     _pending_posts[admin_id] = []
     for old_post in old_posts:
         movie = old_post["movie"]
-        await callback.message.answer(f"⏳ <b>{movie.title}</b> qayta tayyorlanmoqda...", parse_mode="HTML")
+        from html import escape as html_escape
+        await callback.message.answer(f"⏳ <b>{html_escape(str(movie.title or ''), quote=False)}</b> qayta tayyorlanmoqda...", parse_mode="HTML")
         post_data = await ChannelPostService.prepare_post(bot, movie)
         _pending_posts[admin_id].append(post_data)
 
@@ -783,7 +791,9 @@ async def channel_post_code_entered(message: Message, state: FSMContext, session
         return
 
     await state.clear()
-    progress = await message.answer(f"⏳ <b>[{code}] {movie.title}</b> uchun post tayyorlanmoqda...", parse_mode="HTML")
+    from html import escape as html_escape
+    safe_title = html_escape(str(movie.title or ""), quote=False)
+    progress = await message.answer(f"⏳ <b>[{code}] {safe_title}</b> uchun post tayyorlanmoqda...", parse_mode="HTML")
 
     try:
         from services.channel_post_service import ChannelPostService

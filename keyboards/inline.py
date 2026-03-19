@@ -113,6 +113,16 @@ def movie_detail_kb(movie_id: int, is_favorite: bool = False) -> InlineKeyboardM
     return builder.as_markup()
 
 
+def _truncate_callback_data(data: str, max_bytes: int = 64) -> str:
+    """Callback data ni 64 baytdan oshmasligi uchun qisqartirish."""
+    encoded = data.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return data
+    # UTF-8 xavfsiz qisqartirish
+    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore")
+    return truncated
+
+
 def pagination_kb(
     prefix: str,
     current_page: int,
@@ -123,8 +133,9 @@ def pagination_kb(
     buttons = []
 
     if current_page > 1:
+        cb = _truncate_callback_data(f"{prefix}:{current_page - 1}:{extra_data}")
         buttons.append(InlineKeyboardButton(
-            text="⬅️", callback_data=f"{prefix}:{current_page - 1}:{extra_data}"
+            text="⬅️", callback_data=cb
         ))
 
     buttons.append(InlineKeyboardButton(
@@ -132,8 +143,9 @@ def pagination_kb(
     ))
 
     if current_page < total_pages:
+        cb = _truncate_callback_data(f"{prefix}:{current_page + 1}:{extra_data}")
         buttons.append(InlineKeyboardButton(
-            text="➡️", callback_data=f"{prefix}:{current_page + 1}:{extra_data}"
+            text="➡️", callback_data=cb
         ))
 
     builder.row(*buttons)

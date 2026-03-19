@@ -1,6 +1,14 @@
 import math
+from html import escape as html_escape
 from typing import Optional
 from database.models import Movie
+
+
+def safe_html(text: str) -> str:
+    """HTML-escape qilish — <, >, & belgilarni xavfsiz qilish."""
+    if not text:
+        return ""
+    return html_escape(str(text), quote=False)
 
 
 def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float = 0, rating_count: int = 0) -> str:
@@ -12,13 +20,13 @@ def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float
     if show_code:
         lines.append(f"🎬 <b>Kod:</b> <code>{movie.code}</code>")
 
-    lines.append(f"📽 <b>{clean_title(movie.title) if movie.title else 'Nomsiz'}</b>")
+    lines.append(f"📽 <b>{safe_html(clean_title(movie.title)) if movie.title else 'Nomsiz'}</b>")
 
     if movie.title_uz and movie.title_uz != movie.title:
-        lines.append(f"🇺🇿 {movie.title_uz}")
+        lines.append(f"🇺🇿 {safe_html(movie.title_uz)}")
 
     if movie.title_ru and movie.title_ru != movie.title:
-        lines.append(f"🇷🇺 {movie.title_ru}")
+        lines.append(f"🇷🇺 {safe_html(movie.title_ru)}")
 
     lines.append("")
 
@@ -35,7 +43,7 @@ def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float
 
     if movie.genres:
         genre_str = ", ".join(
-            f"{g.emoji or '🎭'} {g.name_uz}" for g in movie.genres
+            f"{g.emoji or '🎭'} {safe_html(g.name_uz)}" for g in movie.genres
         )
         lines.append(f"🎭 {genre_str}")
 
@@ -62,7 +70,7 @@ def format_movie_caption(movie: Movie, show_code: bool = True, avg_rating: float
         desc = movie.description[:200]
         if len(movie.description) > 200:
             desc += "..."
-        lines.append(f"\n📝 {desc}")
+        lines.append(f"\n📝 {safe_html(desc)}")
 
     lines.append("")
     lines.append(f"👁 {movie.view_count} marta ko'rildi")
@@ -86,8 +94,8 @@ def clean_title(raw_title: str) -> str:
 
 def format_movie_list_item(movie: Movie, index: int = 0) -> str:
     year_str = f" ({movie.year})" if movie.year else ""
-    quality_str = f" [{movie.quality}]" if movie.quality else ""
-    title = clean_title(movie.title) if movie.title else "Nomsiz kino"
+    quality_str = f" [{safe_html(movie.quality)}]" if movie.quality else ""
+    title = safe_html(clean_title(movie.title)) if movie.title else "Nomsiz kino"
     return f"{index}. 🎬 {title}{year_str}{quality_str}\n   📎 Kod: <code>{movie.code}</code>"
 
 

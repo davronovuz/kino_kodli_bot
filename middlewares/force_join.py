@@ -53,12 +53,14 @@ class ForceJoinMiddleware(BaseMiddleware):
             if is_new:
                 bot_instance: Bot = data.get("bot")
                 if bot_instance:
+                    from html import escape as html_escape
+                    safe_name = html_escape(str(user.full_name or ""), quote=False)
                     for admin_id in config.admins_list[:3]:
                         try:
                             await bot_instance.send_message(
                                 admin_id,
                                 f"👤 <b>Yangi foydalanuvchi!</b>\n"
-                                f"Ism: {user.full_name}\n"
+                                f"Ism: {safe_name}\n"
                                 f"Username: @{user.username}\n"
                                 f"ID: <code>{user.id}</code>",
                                 parse_mode="HTML",

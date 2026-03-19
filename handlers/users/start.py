@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from html import escape as html_escape
 from database.repositories import UserRepository
 from keyboards.reply import main_menu_kb
 from keyboards.inline import force_join_kb
@@ -28,12 +29,13 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
         return
 
     if is_new:
+        safe_name = html_escape(str(message.from_user.full_name or ""), quote=False)
         for admin_id in config.admins_list[:3]:
             try:
                 await message.bot.send_message(
                     admin_id,
                     f"👤 <b>Yangi foydalanuvchi!</b>\n"
-                    f"Ism: {message.from_user.full_name}\n"
+                    f"Ism: {safe_name}\n"
                     f"Username: @{message.from_user.username}\n"
                     f"ID: <code>{message.from_user.id}</code>",
                     parse_mode="HTML",
@@ -41,11 +43,12 @@ async def cmd_start(message: Message, session: AsyncSession, state: FSMContext):
             except Exception:
                 pass
 
+    safe_first = html_escape(str(message.from_user.first_name or ""), quote=False)
     welcome_text = (
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"  🎬 <b>FAST KINO BOT</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👋 Salom, <b>{message.from_user.first_name}</b>!\n\n"
+        f"👋 Salom, <b>{safe_first}</b>!\n\n"
         f"🔢 Kino <b>kodini</b> yuboring:\n"
         f"   Masalan: <code>1</code> yoki <code>250</code>\n\n"
         f"🔤 Kino <b>nomini</b> yozing:\n"
@@ -100,12 +103,13 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
     )
 
     if is_new:
+        safe_name = html_escape(str(callback.from_user.full_name or ""), quote=False)
         for admin_id in config.admins_list[:3]:
             try:
                 await callback.bot.send_message(
                     admin_id,
                     f"👤 <b>Yangi foydalanuvchi!</b>\n"
-                    f"Ism: {callback.from_user.full_name}\n"
+                    f"Ism: {safe_name}\n"
                     f"Username: @{callback.from_user.username}\n"
                     f"ID: <code>{callback.from_user.id}</code>",
                     parse_mode="HTML",
@@ -119,11 +123,12 @@ async def check_subscription(callback: CallbackQuery, session: AsyncSession, bot
     except Exception:
         pass
 
+    safe_first = html_escape(str(callback.from_user.first_name or ""), quote=False)
     welcome_text = (
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"  🎬 <b>FAST KINO BOT</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👋 Salom, <b>{callback.from_user.first_name}</b>!\n\n"
+        f"👋 Salom, <b>{safe_first}</b>!\n\n"
         f"🔢 Kino <b>kodini</b> yuboring:\n"
         f"   Masalan: <code>1</code> yoki <code>250</code>\n\n"
         f"🔤 Kino <b>nomini</b> yozing:\n"

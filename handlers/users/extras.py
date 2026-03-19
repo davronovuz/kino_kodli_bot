@@ -1,3 +1,4 @@
+from html import escape as html_escape
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
@@ -135,8 +136,8 @@ async def request_movie_text(message: Message, session: AsyncSession, state: FSM
             await message.bot.send_message(
                 admin_id,
                 f"📩 <b>Yangi kino so'rovi!</b>\n\n"
-                f"👤 {message.from_user.full_name} (@{message.from_user.username})\n"
-                f"🎬 <b>{text}</b>\n\n"
+                f"👤 {html_escape(str(message.from_user.full_name or ''), quote=False)} (@{message.from_user.username})\n"
+                f"🎬 <b>{html_escape(text, quote=False)}</b>\n\n"
                 f"Javob: /reply_{req.id} matn",
                 parse_mode="HTML",
             )
@@ -184,7 +185,7 @@ async def show_leaderboard(message: Message, session: AsyncSession):
 
     for i, (tg_id, name, username, watched) in enumerate(watchers):
         medal = medals[i] if i < 3 else f"{i+1}."
-        display = name or f"@{username}" or str(tg_id)
+        display = html_escape(str(name), quote=False) if name else (f"@{username}" if username else str(tg_id))
         is_you = " ← <b>Siz</b>" if tg_id == message.from_user.id else ""
         text += f"{medal} {display} — {watched} ta kino{is_you}\n"
 
@@ -198,7 +199,7 @@ async def show_leaderboard(message: Message, session: AsyncSession):
         for i, (tg_id, cnt) in enumerate(ref_top):
             medal = medals[i] if i < 3 else f"{i+1}."
             user = await UserRepository.get_by_telegram_id(session, tg_id)
-            name = user.full_name if user else str(tg_id)
+            name = html_escape(str(user.full_name), quote=False) if user and user.full_name else str(tg_id)
             text += f"{medal} {name} — {cnt} ta taklif\n"
 
     await message.answer(text, parse_mode="HTML")

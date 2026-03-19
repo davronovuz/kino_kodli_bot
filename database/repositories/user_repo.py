@@ -1,4 +1,5 @@
 from sqlalchemy import select, func, update, delete, desc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import Optional, List, Tuple
@@ -16,7 +17,9 @@ class UserRepository:
         username: str = None,
         full_name: str = None,
     ) -> Tuple[User, bool]:
-        """Get existing user or create new. Returns (user, is_new)."""
+        """Get existing user or create new. Returns (user, is_new).
+        Race-condition safe: handles IntegrityError on duplicate telegram_id.
+        """
         result = await session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -38,9 +41,25 @@ class UserRepository:
             full_name=full_name,
         )
         session.add(user)
-        await session.commit()
-        await session.refresh(user)
-        return user, True
+        try:
+            await session.commit()
+            await session.refresh(user)
+            return user, True
+        except IntegrityError:
+            # Race condition: boshqa so'rov allaqachon yaratgan
+            await session.rollback()
+            result = await session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+            if user:
+                user.last_active = datetime.utcnow()
+                if username:
+                    user.username = username
+                if full_name:
+                    user.full_name = full_name
+                await session.commit()
+            return user, False
 
     @staticmethod
     async def get_by_telegram_id(session: AsyncSession, telegram_id: int) -> Optional[User]:
